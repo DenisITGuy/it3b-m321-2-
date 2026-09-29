@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: chat-service
+
+  datasource:
+    url: jdbc:postgresql://postgres:5432/${POSTGRES_DB:chat_db}
+    username: ${POSTGRES_USER:chat_user}
+    password: ${POSTGRES_PASSWORD:super_secret_postgres_pw}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+  rabbitmq:
+    host: rabbitmq
+    port: 5672
+    username: ${RABBITMQ_USER:chat_user}
+    password: ${RABBITMQ_PASSWORD:rabbit_password}
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # WICHTIG: 'keycloak' ist der Dienstname in docker-compose.yml!
+          issuer-uri: http://keycloak:8080/auth/realms/chat-realm
+          jwk-set-uri: http://keycloak:8080/auth/realms/chat-realm/protocol/openid-connect/certs
+
+server:
+  port: 8080

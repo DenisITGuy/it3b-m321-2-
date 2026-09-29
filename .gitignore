@@ -1,0 +1,10 @@
+# Umgebungsvariablen mit Passwoertern (S8)
+.env
+
+# Lokale Dev-Overrides mit veroeffentlichten Ports (S2)
+docker-compose.override.yml
+
+# Build-Artefakte und Logs
+target/
+*.class
+*.log

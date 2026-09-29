@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: batch-writer
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:postgres}:${POSTGRES_PORT:5432}/${POSTGRES_DB:chat_db}
+    username: ${POSTGRES_USER:chat_user}
+    password: ${POSTGRES_PASSWORD:super_secret_postgres_pw}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:chat_user}
+    password: ${RABBITMQ_PASSWORD:rabbit_password}
+    listener:
+      simple:
+        # S7: Bei DB-Ausfall Nachricht NICHT verwerfen, sondern erneut zustellen
+        default-requeue-rejected: true
+        retry:
+          enabled: true
+          initial-interval: 1000
+          max-interval: 10000
+          multiplier: 2.0
+          max-attempts: 5
+
+app:
+  batch-size: ${BATCH_SIZE:100}

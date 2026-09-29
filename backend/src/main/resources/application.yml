@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: chat-service
+
+  datasource:
+    url: jdbc:postgresql://postgres:5432/${POSTGRES_DB:chat_db}
+    username: ${POSTGRES_USER:chat_user}
+    password: ${POSTGRES_PASSWORD:super_secret_postgres_pw}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+  rabbitmq:
+    host: rabbitmq
+    port: 5672
+    username: ${RABBITMQ_USER:chat_user}
+    password: ${RABBITMQ_PASSWORD:rabbit_password}
+
+server:
+  port: 8080
