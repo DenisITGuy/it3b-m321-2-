@@ -75,3 +75,77 @@ CREATE TABLE message (
 -- Index für schnelle Abfragen nach Raum
 CREATE INDEX idx_message_room_id ON message(room_id);
 ---------------------------------------------------------------
+
+Spalten-Begründung:
+id: UUID, eindeutig, verhindert Duplikate (Idempotenz).
+room_id: UUID, verweist auf den Chat-Raum.
+sender: VARCHAR(50), Benutzername des Absenders.
+content: TEXT, Nachrichtentext (kann lang sein).
+created_at: TIMESTAMP, Zeitpunkt des Sendens (nicht des Speicherns!).
+
+4.2 Umgebungsvariablen
+
+Variable            |           Beschreibung            |           Beispiel
+                        
+POSTGRES_USER               Datenbank-Benutzer              chat_user
+POSTGRES_PASSWORD           Datenbank-Password              super_secret_postgres_pw
+POSTGRES_DB                 Datenbank-Name                  chat_db
+POSTGRES_HOST               Datenbank-Host                  postgres
+POSTGRES_PORT               Datenbank-Port                  5432
+RABBITMQ_HOST               RabbitMQ-Host                   rabbitmq
+RABBITMQ_PORT               RabbitMQ-Port                   5672
+RABBITMQ_USER               RabbitMQ-Benutzer               chat_user
+RABBITMQ_PASSWORD           RabbitMQ-Passwort               rabbit_password
+BATCH_SIZE                  Anzahl Nachrichten pro Batch    10  	
+
+4.3 Docker-Netz
+Der batch-writer läuft im Netz chat-net zusammen mit postgres und rabbitmq.
+
+5. Abnahmekriterien (messbar)
+
+Nr.         Kriterium                                   Messbefehl  
+S1          mvn clean test läuft grün                   mvn clean test im Wurzelverzeichnis    
+S2          Kein Dienst veröffentlicht einen Port       docker compose ps zeigt keine Port-Mappings
+S3          1000 Nachrichten in ≤60s verarbeitet        docker compose exec postgres psql -U chat_user -d chat_db -c "SELECT COUNT(*) FROM message;"
+S4          Max. 100 Transaktionen für 1000 Nachrichten PostgreSQL-Logs zählen COMMIT-Statements
+S5          Duplikat wird nur einmal gespeichert        SELECT COUNT(*) FROM message WHERE id = '...' ergibt 1
+S6          2 Instanzen verarbeiten ohne Duplikate      "docker compose up --scale batch-writer=2" COUNT-Abfrage
+S7          Nach DB-Ausfall alles in ≤90s verarbeitet   Zeitmessung zwischen DB-Restart und COUNT-Abfrage
+S8          Code-Regeln eingehalten                     Code-Review + git ls-files | grep .env
+
+6. Architektur-Diagramm
+
+┌─────────────────┐
+│   chat-service  │
+│  (POST /messages)│
+────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  RabbitMQ       │
+│  Queue:         │
+│  chat.persist   │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  batch-writer   │
+│  (1-2 Instanzen)│
+└────────────────┘
+         │
+         ▼
+─────────────────┐
+│   PostgreSQL    │
+│   Tabelle:      │
+│   message       │
+└─────────────────┘
+
+7. Fehlerbehandlung
+
+Fehler                              Verhalten   
+Ungültiges JSON                     Nachricht an chat.dlq senden, original Queue acken
+Datenbank nicht erreichbar          Retry mit exponentiellem Backoff (1s, 2s, 4s, 8s, max 30s)
+Duplikat (id existiert bereits)     Nachricht ignorieren, original Queue acken
+Queue leer                          Warten (blockierend oder polling)
+
+Diese Spezifikation ist vollständig. Eine Mitschülerin kann den batch-writer allein daraus bauen.

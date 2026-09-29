@@ -8,3 +8,5 @@ docker-compose.override.yml
 target/
 *.class
 *.log
+Logs
+*.log

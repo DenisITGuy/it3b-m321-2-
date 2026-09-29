@@ -19,6 +19,23 @@ public class MessageEvent {
     public MessageEvent() {
     }
 
+    /**
+     * All-Args Konstruktor (wichtig fuer die Integrationstests).
+     *
+     * @param id Eindeutige ID
+     * @param roomId Raum-ID
+     * @param sender Absender
+     * @param content Text
+     * @param createdAt Zeitstempel
+     */
+    public MessageEvent(UUID id, UUID roomId, String sender, String content, Instant createdAt) {
+        this.id = id;
+        this.roomId = roomId;
+        this.sender = sender;
+        this.content = content;
+        this.createdAt = createdAt;
+    }
+
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
 

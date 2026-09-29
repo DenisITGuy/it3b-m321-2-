@@ -4,7 +4,6 @@ services:
   # ---------------------------------------------------------------
   postgres:
     image: postgres:16.1-alpine
-    container_name: chat-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -18,14 +17,12 @@ services:
       retries: 10
     networks:
       - chat-net
-    restart: unless-stopped
 
   # ---------------------------------------------------------------
-  # RabbitMQ (Queues chat.persist und chat.dlq)
+  # RabbitMQ
   # ---------------------------------------------------------------
   rabbitmq:
     image: rabbitmq:3.12-management
-    container_name: chat-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
@@ -36,7 +33,6 @@ services:
       retries: 10
     networks:
       - chat-net
-    restart: unless-stopped
 
   # ---------------------------------------------------------------
   # chat-service (Producer)
@@ -45,7 +41,6 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: chat-backend
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -59,11 +54,11 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    restart: unless-stopped
 
   # ---------------------------------------------------------------
-  # batch-writer (Bewertung 1)
-  # WICHTIG: Keine ports (S2)! Kein container_name (S6 braucht --scale)!
+  # batch-writer (Consumer)
+  # WICHTIG: Kein container_name, damit S6 (--scale) funktioniert!
+  # WICHTIG: Keine ports, damit S2 besteht!
   # ---------------------------------------------------------------
   batch-writer:
     build:
@@ -87,7 +82,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    restart: unless-stopped
 
 networks:
   chat-net:
@@ -95,4 +89,3 @@ networks:
 
 volumes:
   postgres_data:
-    driver: local
