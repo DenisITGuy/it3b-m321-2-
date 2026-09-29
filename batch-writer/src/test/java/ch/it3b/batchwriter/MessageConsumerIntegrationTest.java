@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -20,31 +21,26 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Integrationstests fuer den MessageConsumer.
- * Nutzt Testcontainers, um eine echte PostgreSQL- und RabbitMQ-Instanz zu starten.
- * Erfuellt die Test-Anforderungen fuer Szenario S5 (Duplikat) und S7 (Ausfall).
+ * Integrationstests fuer den MessageConsumer mit echter Queue und echter Datenbank.
+ * Deckt die Pflicht-Tests fuer Szenario S5 (Duplikat) und S7 (Datenbank-Ausfall) ab.
  */
 @SpringBootTest
 @Testcontainers
 class MessageConsumerIntegrationTest {
 
-    /**
-     * Startet einen echten PostgreSQL-Container fuer die Tests.
-     */
+    /** Echter PostgreSQL-Container fuer die Tests. */
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(DockerImageName.parse("postgres:16.1-alpine"))
             .withDatabaseName("testdb")
             .withUsername("test")
             .withPassword("test");
 
-    /**
-     * Startet einen echten RabbitMQ-Container fuer die Tests.
-     */
+    /** Echter RabbitMQ-Container fuer die Tests. */
     @Container
     static RabbitMQContainer rabbitmq = new RabbitMQContainer(DockerImageName.parse("rabbitmq:3.12-management"));
 
     /**
-     * Verbindet die Spring Boot Anwendung mit den Testcontainers.
+     * Verbindet die Spring-Anwendung mit den Testcontainers.
      *
      * @param registry Die Property-Registry von Spring
      */
@@ -65,39 +61,79 @@ class MessageConsumerIntegrationTest {
     @Autowired
     private MessageRepository messageRepository;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     /**
-     * Szenario S5 (Idempotenz): Dieselbe Nachricht wird zweimal gesendet.
-     * Erwartet: Genau eine Zeile in der Datenbank.
+     * Szenario S5: Dieselbe Nachricht wird zweimal in die Queue gelegt.
+     * Erwartet: Genau eine Zeile in der Datenbank, kein Duplikat.
      *
-     * @throws Exception falls der Thread-Sleep unterbrochen wird
+     * @throws Exception falls das Warten unterbrochen wird
      */
     @Test
-    void s5_duplicateMessage_shouldBeSavedOnlyOnce() throws Exception {
-        // 1. Arrange: Eindeutige ID fuer diesen Test generieren
-        UUID messageId = UUID.randomUUID();
-        UUID roomId = UUID.randomUUID();
-        MessageEvent event = new MessageEvent(messageId, roomId, "testuser", "Duplikat-Test", Instant.now());
+    void s5_duplicateMessage_isSavedOnlyOnce() throws Exception {
+        MessageEvent event = new MessageEvent(UUID.randomUUID(), UUID.randomUUID(),
+                "testuser", "Duplikat-Test", Instant.now());
 
-        // 2. Act: Dieselbe Nachricht zweimal an die Queue senden
         rabbitTemplate.convertAndSend("chat.persist", event);
         rabbitTemplate.convertAndSend("chat.persist", event);
 
-        // 3. Assert: Warten, bis der Batch-Writer beide verarbeitet hat
-        // Wir pollen die Datenbank, da der Batch-Writer asynchron arbeitet.
-        long count = 0;
-        for (int i = 0; i < 20; i++) {
-            count = messageRepository.count();
-            if (count >= 1) {
-                Thread.sleep(200); // Kurz warten, ob noch ein Duplikat durchrutscht
-                break;
-            }
-            Thread.sleep(200);
-        }
+        waitForCount(1, 20);
+        Thread.sleep(500); // Karenzzeit: Ein Duplikat haette jetzt Zeit gehabt
+        long count = messageRepository.count(); // NEU einlesen nach der Karenzzeit!
 
-        // Es darf nur genau 1 Nachricht in der DB sein (wegen ON CONFLICT DO NOTHING)
-        assertEquals(1, count, "S5 fehlgeschlagen: Duplikat wurde nicht korrekt ignoriert!");
-        
-        // Aufräumen für andere Tests
+        assertEquals(1, count, "S5 verletzt: Duplikat wurde nicht ignoriert!");
         messageRepository.deleteAll();
+    }
+
+    /**
+     * Szenario S7: Waehrend die Datenbank nicht schreibbar ist, trifft eine Nachricht ein.
+     * Erwartet: Die Nachricht bleibt in der Queue und wird nach der Wiederherstellung zugestellt.
+     *
+     * @throws Exception falls das Warten unterbrochen wird
+     */
+    @Test
+    void s7_messageSurvivesDatabaseOutage() throws Exception {
+        // 1. Ausfall simulieren: Tabelle existiert nicht mehr
+        jdbcTemplate.execute("DROP TABLE message");
+
+        // 2. Nachricht waehrend des Ausfalls senden
+        MessageEvent event = new MessageEvent(UUID.randomUUID(), UUID.randomUUID(),
+                "testuser", "Ausfall-Test", Instant.now());
+        rabbitTemplate.convertAndSend("chat.persist", event);
+
+        // 3. Dem Consumer kurz beim Scheitern zusehen, dann DB wiederherstellen
+        Thread.sleep(3000);
+        jdbcTemplate.execute("CREATE TABLE message ("
+                + "id uuid PRIMARY KEY, "
+                + "room_id uuid NOT NULL, "
+                + "sender varchar(50) NOT NULL, "
+                + "content text NOT NULL, "
+                + "created_at timestamp with time zone NOT NULL)");
+
+        // 4. Erwartet: Nachricht wird trotzdem irgendwann zugestellt (Retry + Requeue)
+        long count = waitForCount(1, 40);
+        assertEquals(1, count, "S7 verletzt: Nachricht waehrend des Ausfalls verloren!");
+        messageRepository.deleteAll();
+    }
+
+    /**
+     * Wartet, bis mindestens die angegebene Anzahl Zeilen in der message-Tabelle liegt.
+     *
+     * @param minimum Mindestanzahl Zeilen
+     * @param attempts Maximale Anzahl Poll-Versuche
+     * @return Die zuletzt gelesene Anzahl
+     * @throws InterruptedException falls das Warten unterbrochen wird
+     */
+    private long waitForCount(long minimum, int attempts) throws InterruptedException {
+        long count = 0;
+        for (int i = 0; i < attempts; i++) {
+            count = messageRepository.count();
+            if (count >= minimum) {
+                return count;
+            }
+            Thread.sleep(250);
+        }
+        return count;
     }
 }

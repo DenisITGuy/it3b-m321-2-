@@ -36,18 +36,33 @@ public class MessageEvent {
         this.createdAt = createdAt;
     }
 
+    /** @return Die eindeutige ID der Nachricht */
     public UUID getId() { return id; }
+
+    /** @param id Die eindeutige ID der Nachricht */
     public void setId(UUID id) { this.id = id; }
 
+    /** @return Die ID des Chat-Raums */
     public UUID getRoomId() { return roomId; }
+
+    /** @param roomId Die ID des Chat-Raums */
     public void setRoomId(UUID roomId) { this.roomId = roomId; }
 
+    /** @return Der Benutzername des Absenders */
     public String getSender() { return sender; }
+
+    /** @param sender Der Benutzername des Absenders */
     public void setSender(String sender) { this.sender = sender; }
 
+    /** @return Der Nachrichtentext */
     public String getContent() { return content; }
+
+    /** @param content Der Nachrichtentext */
     public void setContent(String content) { this.content = content; }
 
+    /** @return Der urspruengliche Sendezeitpunkt */
     public Instant getCreatedAt() { return createdAt; }
+
+    /** @param createdAt Der urspruengliche Sendezeitpunkt */
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }

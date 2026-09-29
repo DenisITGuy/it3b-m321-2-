@@ -8,8 +8,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Repraesentiert eine Chat-Nachricht in der Datenbank.
- * Das Schema entspricht den Anforderungen aus der Spezifikation.
+ * Repraesentiert eine Chat-Nachricht in der Datenbank (Tabelle 'message').
+ * Das Schema entspricht den Spalten aus PLANUNG.md 3.7.
  */
 @Entity
 @Table(name = "message")
@@ -36,10 +36,7 @@ public class Message {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
-    /**
-     * Standard-Konstruktor fuer JPA.
-     * Wird von Hibernate benoetigt, um Objekte aus der DB zu laden.
-     */
+    /** Standard-Konstruktor fuer JPA/Hibernate. */
     protected Message() {
     }
 
@@ -60,9 +57,18 @@ public class Message {
         this.createdAt = createdAt;
     }
 
+    /** @return Die eindeutige ID der Nachricht */
     public UUID getId() { return id; }
+
+    /** @return Die ID des Chat-Raums */
     public UUID getRoomId() { return roomId; }
+
+    /** @return Der Benutzername des Absenders */
     public String getSender() { return sender; }
+
+    /** @return Der Nachrichtentext */
     public String getContent() { return content; }
+
+    /** @return Der urspruengliche Sendezeitpunkt */
     public Instant getCreatedAt() { return createdAt; }
 }
