@@ -10,26 +10,9 @@ import org.springframework.stereotype.Repository;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Repository fuer den Zugriff auf die 'message' Tabelle.
- * Bietet Methoden zum sicheren Einfuegen von Nachrichten.
- */
 @Repository
 public interface MessageRepository extends JpaRepository<Message, UUID> {
 
-    /**
-     * Fuegt eine Nachricht ein, ignoriert sie aber, falls die ID schon existiert.
-     * Dies ist entscheidend fuer Szenario S5 (Idempotenz) und S6 (Skalierung).
-     * 
-     * WICHTIG: Wir uebergeben die UUIDs als String, damit der PostgreSQL JDBC-Treiber
-     * sie korrekt als Text an die DB sendet und der 'cast(... as uuid)' funktioniert.
-     *
-     * @param id ID der Nachricht (als String)
-     * @param roomId ID des Raums (als String)
-     * @param sender Absender
-     * @param content Text
-     * @param createdAt Zeitstempel
-     */
     @Modifying
     @Query(value = "INSERT INTO message (id, room_id, sender, content, created_at) " +
                    "VALUES (cast(:id as uuid), cast(:roomId as uuid), :sender, :content, :createdAt) " +

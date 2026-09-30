@@ -43,16 +43,15 @@ public class MessageController {
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
     public MessageEvent sendMessage(@RequestBody SendMessageRequest request) {
-        // sender_id und sender_name: aus dem Request falls vorhanden, sonst Default.
-        // (Keycloak ist nicht Teil der Aufgabe, daher gibt es keine echte "sub".)
-        String senderId = request.senderId() != null ? request.senderId() : "anonymous-sub";
-        String senderName = request.senderName() != null ? request.senderName() : "anonymous";
+        // sender: aus dem Request falls vorhanden, sonst Default
+        String sender = (request.sender() != null && !request.sender().isBlank()) 
+            ? request.sender() 
+            : "anonymous";
         
         MessageEvent event = new MessageEvent(
                 UUID.randomUUID(),
                 request.roomId(),
-                senderId,
-                senderName,
+                sender,
                 request.content(),
                 Instant.now());
         

@@ -531,3 +531,8 @@ CREATE INDEX idx_messages_created_at ON messages(created_at);
 **Dokument erstellt**: 28. August 2026
 **Status**: Entwurf – wartet auf User-Entscheidungen
 **Version**: 1.0
+
+### Datenmodell (Abweichung vom Kurs-Standard)
+Ich habe mich für folgende Spaltennamen entschieden, da sie semantisch klarer sind:
+- `sender` (statt `sender_id`/`sender_name`): Enthält den Benutzernamen.
+- `created_at` (statt `sent_at`): Standard-Timestamp-Name.
