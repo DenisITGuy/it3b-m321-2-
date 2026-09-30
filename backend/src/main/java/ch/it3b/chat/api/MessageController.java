@@ -2,20 +2,15 @@ package ch.it3b.chat.api;
 
 import ch.it3b.chat.config.RabbitConfig;
 import ch.it3b.chat.messaging.MessageEvent;
-import ch.it3b.chat.model.ChatMessage;
-import ch.it3b.chat.model.MessageRepository;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -28,17 +23,14 @@ import java.util.UUID;
 public class MessageController {
 
     private final RabbitTemplate rabbitTemplate;
-    private final MessageRepository messageRepository;
 
     /**
      * Konstruktor fuer Dependency Injection.
      *
      * @param rabbitTemplate Sendet Nachrichten an RabbitMQ
-     * @param messageRepository Liest den Verlauf aus der Datenbank
      */
-    public MessageController(RabbitTemplate rabbitTemplate, MessageRepository messageRepository) {
+    public MessageController(RabbitTemplate rabbitTemplate) {
         this.rabbitTemplate = rabbitTemplate;
-        this.messageRepository = messageRepository;
     }
 
     /**
@@ -51,25 +43,20 @@ public class MessageController {
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
     public MessageEvent sendMessage(@RequestBody SendMessageRequest request) {
-        String sender = request.sender() != null ? request.sender() : "anonymous";
+        // sender_id und sender_name: aus dem Request falls vorhanden, sonst Default.
+        // (Keycloak ist nicht Teil der Aufgabe, daher gibt es keine echte "sub".)
+        String senderId = request.senderId() != null ? request.senderId() : "anonymous-sub";
+        String senderName = request.senderName() != null ? request.senderName() : "anonymous";
+        
         MessageEvent event = new MessageEvent(
                 UUID.randomUUID(),
                 request.roomId(),
-                sender,
+                senderId,
+                senderName,
                 request.content(),
                 Instant.now());
+        
         rabbitTemplate.convertAndSend(RabbitConfig.QUEUE_NAME, event);
         return event;
-    }
-
-    /**
-     * Liest den Verlauf eines Raums aus der Datenbank.
-     *
-     * @param roomId Die ID des Raums
-     * @return Liste der Nachrichten, aelteste zuerst
-     */
-    @GetMapping
-    public List<ChatMessage> getMessages(@RequestParam UUID roomId) {
-        return messageRepository.findAllByRoomIdOrderByCreatedAtAsc(roomId);
     }
 }

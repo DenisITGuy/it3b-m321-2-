@@ -5,13 +5,14 @@ import java.util.UUID;
 
 /**
  * Das Datenobjekt, das ueber RabbitMQ verschickt wird (Queue: chat.persist).
- * Ein Record ist perfekt dafuer, da er unveraenderlich und kompakt ist.
+ * Die Felder entsprechen exakt PLANUNG.md Abschnitt 3.7.
  *
  * @param id Eindeutige ID der Nachricht (wichtig fuer Idempotenz / Szenario S5)
  * @param roomId ID des Chat-Raums
- * @param sender Absender (aus Keycloak Token)
+ * @param senderId Keycloak-Sub des Absenders
+ * @param senderName Anzeigename des Absenders
  * @param content Nachrichtentext
- * @param createdAt Zeitstempel
+ * @param sentAt Sendezeitpunkt
  */
-public record MessageEvent(UUID id, UUID roomId, String sender, String content, Instant createdAt) {
+public record MessageEvent(UUID id, UUID roomId, String senderId, String senderName, String content, Instant sentAt) {
 }

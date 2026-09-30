@@ -36,7 +36,6 @@ public class MessageConsumer {
     @RabbitListener(queues = "chat.persist", containerFactory = "rabbitListenerContainerFactory")
     @Transactional
     public void receiveBatch(List<MessageEvent> events) {
-        // Robustheits-Check: Falls Spring AMQP eine leere Liste oder null uebergibt
         if (events == null || events.isEmpty()) {
             return;
         }
@@ -44,7 +43,6 @@ public class MessageConsumer {
         try {
             int processedCount = 0;
             for (MessageEvent event : events) {
-                // Schuetzt vor NullPointerException bei kaputten Events im Batch
                 if (event == null || event.getId() == null || event.getRoomId() == null) {
                     continue;
                 }
@@ -52,9 +50,10 @@ public class MessageConsumer {
                 messageRepository.saveIfNotExists(
                     event.getId().toString(),
                     event.getRoomId().toString(),
-                    event.getSender(),
+                    event.getSenderId(),
+                    event.getSenderName(),
                     event.getContent(),
-                    event.getCreatedAt()
+                    event.getSentAt()
                 );
                 processedCount++;
             }
@@ -64,8 +63,6 @@ public class MessageConsumer {
         } catch (Exception e) {
             System.err.println("❌ FEHLER BEIM SPEICHERN DES BATCHES: " + e.getMessage());
             e.printStackTrace();
-            // Exception MUSS weitergeworfen werden, damit die Transaktion rollbackt
-            // und die Nachricht in der Queue bleibt (wichtig für S7 - DB Ausfall)
             throw new RuntimeException(e);
         }
     }

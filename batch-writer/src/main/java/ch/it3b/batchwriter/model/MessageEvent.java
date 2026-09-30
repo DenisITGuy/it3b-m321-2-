@@ -5,15 +5,16 @@ import java.util.UUID;
 
 /**
  * Repraesentiert das JSON-Format einer Nachricht aus der Queue 'chat.persist'.
- * Wird von Jackson automatisch aus dem JSON-String deserialisiert.
+ * Die Felder entsprechen exakt PLANUNG.md Abschnitt 3.7.
  */
 public class MessageEvent {
 
     private UUID id;
     private UUID roomId;
-    private String sender;
+    private String senderId;
+    private String senderName;
     private String content;
-    private Instant createdAt;
+    private Instant sentAt;
 
     /** Standard-Konstruktor fuer Jackson. */
     public MessageEvent() {
@@ -24,16 +25,18 @@ public class MessageEvent {
      *
      * @param id Eindeutige ID
      * @param roomId Raum-ID
-     * @param sender Absender
+     * @param senderId Keycloak-Sub des Absenders
+     * @param senderName Anzeigename des Absenders
      * @param content Text
-     * @param createdAt Zeitstempel
+     * @param sentAt Sendezeitpunkt
      */
-    public MessageEvent(UUID id, UUID roomId, String sender, String content, Instant createdAt) {
+    public MessageEvent(UUID id, UUID roomId, String senderId, String senderName, String content, Instant sentAt) {
         this.id = id;
         this.roomId = roomId;
-        this.sender = sender;
+        this.senderId = senderId;
+        this.senderName = senderName;
         this.content = content;
-        this.createdAt = createdAt;
+        this.sentAt = sentAt;
     }
 
     /** @return Die eindeutige ID der Nachricht */
@@ -48,11 +51,17 @@ public class MessageEvent {
     /** @param roomId Die ID des Chat-Raums */
     public void setRoomId(UUID roomId) { this.roomId = roomId; }
 
-    /** @return Der Benutzername des Absenders */
-    public String getSender() { return sender; }
+    /** @return Die Keycloak-Sub des Absenders */
+    public String getSenderId() { return senderId; }
 
-    /** @param sender Der Benutzername des Absenders */
-    public void setSender(String sender) { this.sender = sender; }
+    /** @param senderId Die Keycloak-Sub des Absenders */
+    public void setSenderId(String senderId) { this.senderId = senderId; }
+
+    /** @return Der Anzeigename des Absenders */
+    public String getSenderName() { return senderName; }
+
+    /** @param senderName Der Anzeigename des Absenders */
+    public void setSenderName(String senderName) { this.senderName = senderName; }
 
     /** @return Der Nachrichtentext */
     public String getContent() { return content; }
@@ -60,9 +69,9 @@ public class MessageEvent {
     /** @param content Der Nachrichtentext */
     public void setContent(String content) { this.content = content; }
 
-    /** @return Der urspruengliche Sendezeitpunkt */
-    public Instant getCreatedAt() { return createdAt; }
+    /** @return Der Sendezeitpunkt */
+    public Instant getSentAt() { return sentAt; }
 
-    /** @param createdAt Der urspruengliche Sendezeitpunkt */
-    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    /** @param sentAt Der Sendezeitpunkt */
+    public void setSentAt(Instant sentAt) { this.sentAt = sentAt; }
 }
