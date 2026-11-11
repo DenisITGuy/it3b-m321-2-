@@ -25,6 +25,26 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- Testcontainers 1.19.8 spricht Docker-API 1.32; neuere Engines lehnen das ab -->
         <testcontainers.version>1.21.3</testcontainers.version>
     </properties>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <configuration>
+                        <!-- docker-java sendet ohne diese Angabe API 1.32. Docker Engine 29
+                             verlangt mindestens 1.40 und antwortet sonst mit HTTP 400,
+                             wodurch Testcontainers keine Test-Container starten kann.
+                             1.41 liegt im gueltigen Bereich von Engine 20.10 bis 29,
+                             damit mvn clean test auf jedem Rechner gruen laeuft (S1). -->
+                        <argLine>-Dapi.version=1.41</argLine>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
 </project>
