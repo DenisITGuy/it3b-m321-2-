@@ -1,7 +1,6 @@
 package ch.it3b.batchwriter.config;
 
 import org.springframework.amqp.core.Queue;
-import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
@@ -23,24 +22,22 @@ public class RabbitConfig {
     public static final String DLQ_NAME = "chat.dlq";
 
     /**
-     * Deklariert die Queue chat.persist (durable) mit Dead-Lettering.
-     * Nicht verarbeitbare Nachrichten (z.B. kaputtes JSON) landen so in chat.dlq
-     * statt verworfen zu werden. Dies erfuellt die Anforderung aus S5, dass
-     * Duplikate regulaer geackt werden und die DLQ leer bleibt.
+     * Deklariert die Queue chat.persist (durable), exakt wie der chat-service.
+     * Die Argumente muessen identisch sein: RabbitMQ lehnt eine Deklaration mit
+     * abweichenden Argumenten mit PRECONDITION_FAILED (406) ab und schliesst den
+     * Channel. Dadurch wuerde der Publish des chat-service mit HTTP 500 scheitern
+     * und Nachrichten gingen verloren (S3).
      *
-     * @return Die Queue-Instanz mit DLX-Konfiguration
+     * @return Die Queue-Instanz
      */
     @Bean
     public Queue chatPersistQueue() {
-        return QueueBuilder.durable(QUEUE_NAME)
-                .withArgument("x-dead-letter-exchange", "")
-                .withArgument("x-dead-letter-routing-key", DLQ_NAME)
-                .build();
+        return new Queue(QUEUE_NAME, true);
     }
 
     /**
-     * Deklariert die Queue chat.dlq (durable).
-     * Existiert, damit das Pruefskript sie inspectieren kann (S5).
+     * Deklariert die Queue chat.dlq (durable) gemaess PLANUNG.md.
+     * Sie bleibt leer, weil Duplikate regulaer verarbeitet und geackt werden (S5).
      *
      * @return Die Queue-Instanz
      */
@@ -51,7 +48,7 @@ public class RabbitConfig {
 
     /**
      * Erstellt den JSON-MessageConverter.
-     * Liest Nachrichten mit Header content_type: application/json (S5).
+     * Liest Nachrichten mit dem Header content_type: application/json (S5).
      *
      * @return Der MessageConverter
      */
@@ -62,6 +59,10 @@ public class RabbitConfig {
 
     /**
      * Konfiguriert den Listener fuer Batch-Empfang (S4).
+     * consumerBatchEnabled sammelt einzelne Nachrichten zu einer Liste, damit pro
+     * Batch genau eine Transaktion entsteht. setBatchListener(true) wird bewusst
+     * nicht gesetzt: das wuerde ein JSON-Array als Payload erwarten, der
+     * chat-service sendet aber einzelne JSON-Objekte.
      *
      * @param connectionFactory Die RabbitMQ-Verbindung
      * @param batchSize Nachrichten pro Batch aus application.yml
@@ -75,18 +76,15 @@ public class RabbitConfig {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(messageConverter());
-        
-        // WICHTIG: Nur consumerBatchEnabled setzen, NICHT setBatchListener(true)!
-        // Der Container sammelt dann automatisch einzelne Nachrichten zu einer Liste,
-        // bevor er sie an den Listener übergibt.
         factory.setConsumerBatchEnabled(true);
-        
+
+        // Ungueltige Batch-Groesse faengt der Dienst ab, statt beim Start zu scheitern
         if (batchSize > 0) {
             factory.setBatchSize(batchSize);
         } else {
             factory.setConsumerBatchEnabled(false);
         }
-        
+
         return factory;
     }
 }
