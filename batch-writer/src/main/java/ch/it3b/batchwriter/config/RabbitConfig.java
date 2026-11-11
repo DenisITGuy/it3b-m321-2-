@@ -68,9 +68,18 @@ public class RabbitConfig {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(messageConverter());
-        factory.setBatchListener(true);
+        
+        // WICHTIG: Nur consumerBatchEnabled setzen, NICHT setBatchListener(true)!
+        // Der Container sammelt dann automatisch einzelne Nachrichten zu einer Liste,
+        // bevor er sie an den Listener übergibt.
         factory.setConsumerBatchEnabled(true);
-        factory.setBatchSize(batchSize);
+        
+        if (batchSize > 0) {
+            factory.setBatchSize(batchSize);
+        } else {
+            factory.setConsumerBatchEnabled(false);
+        }
+        
         return factory;
     }
 }

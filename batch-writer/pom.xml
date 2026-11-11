@@ -15,10 +15,6 @@
     <name>batch-writer</name>
     <description>Batch-Writer fuer M321 Bewertung 1</description>
 
-    <properties>
-        <testcontainers.version>1.19.8</testcontainers.version>
-    </properties>
-
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>

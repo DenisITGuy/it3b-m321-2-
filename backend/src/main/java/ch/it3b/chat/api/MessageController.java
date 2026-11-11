@@ -18,10 +18,16 @@ import java.util.UUID;
  * POST nimmt Nachrichten an und legt sie in die Queue chat.persist.
  * Kein Auth-Token noetig: Keycloak ist laut Bewertungsauftrag nicht Teil dieser Aufgabe.
  */
+
+// @RestController = Diese Klasse ist ein REST-Controller (verarbeitet HTTP-Anfragen, gibt JSON/Text zurück)
+// @RequestMapping = Basis-Pfad für alle Endpunkte in dieser Klasse
+// Hier funktionieren beide Pfade: /messages UND /api/messages
 @RestController
 @RequestMapping({"/messages", "/api/messages"})
 public class MessageController {
 
+    // RabbitTemplate = Spring Boot Klasse zum Senden von Nachrichten an RabbitMQ (Message Queue)
+    // final = Wird nur einmal gesetzt (über den Konstruktor)
     private final RabbitTemplate rabbitTemplate;
 
     /**
@@ -29,6 +35,10 @@ public class MessageController {
      *
      * @param rabbitTemplate Sendet Nachrichten an RabbitMQ
      */
+    
+    // Konstruktor für Dependency Injection
+    // Spring Boot erstellt automatisch ein RabbitTemplate und gibt es hier rein
+    // Dependency Injection = Abhängigkeiten werden von außen gegeben, nicht selbst erstellt
     public MessageController(RabbitTemplate rabbitTemplate) {
         this.rabbitTemplate = rabbitTemplate;
     }
@@ -40,14 +50,26 @@ public class MessageController {
      * @param request Die Nachricht vom Client
      * @return Das Event inklusive generierter ID als Bestaetigung
      */
+    
+    // @PostMapping = Diese Methode reagiert auf HTTP POST-Anfragen (für Daten erstellen/senden)
+    // @ResponseStatus(HttpStatus.ACCEPTED) = Gibt HTTP 202 zurück ("akzeptiert, wird asynchron verarbeitet")
+    // @RequestBody = Der JSON-Body der Anfrage wird automatisch in SendMessageRequest umgewandelt
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
     public MessageEvent sendMessage(@RequestBody SendMessageRequest request) {
-        // sender: aus dem Request falls vorhanden, sonst Default
+        // Ternary Operator: Bedingung ? wenn wahr : wenn falsch
+        // Wenn sender vorhanden UND nicht leer → nimm sender, sonst "anonymous"
+        // .isBlank() prüft ob String nur Leerzeichen oder leer ist
         String sender = (request.sender() != null && !request.sender().isBlank()) 
             ? request.sender() 
             : "anonymous";
         
+        // Erstelle ein neues MessageEvent mit allen Daten:
+        // - UUID.randomUUID() = Generiert eine weltweit eindeutige ID (z.B. 550e8400-e29b-11d4...)
+        // - request.roomId() = Raum-ID aus dem Request
+        // - sender = Absender (entweder aus Request oder "anonymous")
+        // - request.content() = Nachrichteninhalt
+        // - Instant.now() = Aktueller Zeitstempel in UTC (sehr präzise)
         MessageEvent event = new MessageEvent(
                 UUID.randomUUID(),
                 request.roomId(),
@@ -55,7 +77,13 @@ public class MessageController {
                 request.content(),
                 Instant.now());
         
+        // Schickt das Event an die RabbitMQ Queue "chat.persist"
+        // convertAndSend = Konvertiert das Objekt zu JSON und sendet es asynchron
+        // Ein anderer Service (persist-service) holt es später ab und speichert es in der DB
         rabbitTemplate.convertAndSend(RabbitConfig.QUEUE_NAME, event);
+        
+        // Gibt das Event zurück als Bestätigung an den Client
+        // Der Client sieht die generierte ID und weiß: Nachricht wurde angenommen
         return event;
     }
 }

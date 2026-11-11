@@ -13,5 +13,8 @@ import java.util.UUID;
  * @param content Nachrichtentext
  * @param createdAt Sendezeitpunkt
  */
+
+// record = Datenobjekt, wird automatisch als JSON verschickt
+// Enthält: ID, Raum, Sender, Text und Zeitpunkt
 public record MessageEvent(UUID id, UUID roomId, String sender, String content, Instant createdAt) {
 }

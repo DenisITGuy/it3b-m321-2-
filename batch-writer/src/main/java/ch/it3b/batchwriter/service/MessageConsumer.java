@@ -8,6 +8,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+/**
+ * Empfängt Nachrichten-Batches aus der RabbitMQ-Queue chat.persist
+ * und persistiert sie idempotent in PostgreSQL.
+ */
 @Service
 public class MessageConsumer {
 
@@ -17,7 +21,15 @@ public class MessageConsumer {
         this.messageRepository = messageRepository;
     }
 
-    @RabbitListener(queues = "chat.persist", containerFactory = "rabbitListenerContainerFactory")
+    /**
+     * Verarbeitet einen Batch von Nachrichten in einer einzigen Transaktion.
+     * Doppelte Nachrichten werden durch ON CONFLICT in der DB ignoriert (S5).
+     * Bei Fehlern wird die Transaktion zurückgerollt und die Nachrichten
+     * gehen zurück in die Queue (Retry-Logik aus application.yml).
+     *
+     * @param events Liste der empfangenen Nachrichten
+     */
+    @RabbitListener(queues = "chat.persist")
     @Transactional
     public void receiveBatch(List<MessageEvent> events) {
         if (events == null || events.isEmpty()) return;
@@ -41,6 +53,7 @@ public class MessageConsumer {
             }
         } catch (Exception e) {
             System.err.println("❌ Fehler im Batch: " + e.getMessage());
+            // RuntimeException → Rollback → Retry über Spring RabbitMQ Config
             throw new RuntimeException(e);
         }
     }
