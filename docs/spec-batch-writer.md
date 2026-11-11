@@ -1,151 +1,118 @@
-1. Zweck und Abgrenzung
-1.1 Zweck
-Der batch-writer ist ein eigenständiger Dienst im Chat-System. Er holt Nachrichten aus der RabbitMQ-Queue chat.persist und schreibt sie dauerhaft in die PostgreSQL-Datenbank. Dadurch wird verhindert, dass Nachrichten verloren gehen, wenn RabbitMQ neu startet oder die Queue voll läuft.
-1.2 Abgrenzung (was der Dienst NICHT tut)
-❌ Der batch-writer nimmt keine HTTP-Anfragen entgegen (kein Web-Server, kein Port).
-❌ Der batch-writer liest keine Chat-Historie (kein GET-Endpunkt).
-❌ Der batch-writer verwaltet keine Räume oder Mitgliedschaften.
-❌ Der batch-writer validiert keine Keycloak-Tokens.
-❌ Der batch-writer sendet keine Nachrichten an Clients (kein WebSocket).
+# Spezifikation: batch-writer
 
-2. Vertrag: Was auf der Queue ankommt
-2.1 Queue-Name
-chat.persist
-2.2 Nachrichten-Format
-Jede Nachricht in der Queue ist ein JSON-Objekt mit folgender Struktur:
----------------------------------------------------------------
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "roomId": "11111111-1111-1111-1111-111111111111",
-  "sender": "testuser",
-  "content": "Hallo Welt!",
-  "createdAt": "2026-09-29T12:49:44.828265886Z"
-}
----------------------------------------------------------------
+## 1. Zweck und Abgrenzung
 
-Header:
-content_type: application/json
-Woher wissen wir das?
-Der chat-service (POST /api/messages) erzeugt diese Nachrichten und sendet sie an die Queue chat.persist. Das Format entspricht der Java-Klasse MessageEvent im chat-service.
-2.3 Dead Letter Queue (DLQ)
-Falls eine Nachricht nicht verarbeitet werden kann (z.B. ungültiges JSON), wird sie an die Queue chat.dlq weitergeleitet.
+### 1.1 Zweck
+Der batch-writer ist ein eigenständiger Spring-Boot-Dienst im Chat-System. Er holt
+Nachrichten aus der RabbitMQ-Queue chat.persist und schreibt sie dauerhaft in die
+PostgreSQL-Tabelle message. Dadurch gehen Nachrichten nicht verloren, wenn RabbitMQ
+neu startet oder die Queue voll läuft.
 
-3. Verhalten
-3.1 Normalfall (S3)
-Der batch-writer holt Nachrichten aus chat.persist.
-Er speichert sie in der Tabelle message in PostgreSQL.
-Nach erfolgreicher Speicherung wird die Nachricht aus der Queue entfernt (acknowledged).
-Bei 1000 Nachrichten dauert die Verarbeitung maximal 60 Sekunden.
-3.2 Batch-Verarbeitung (S4)
-Der batch-writer verarbeitet Nachrichten in Batches (Gruppen).
-Ein Batch enthält maximal 100 Nachrichten.
-Für 1000 Nachrichten werden maximal 100 Transaktionen ausgeführt (1000 / 10 = 100 Transaktionen, wenn Batch-Größe 10 ist).
-Wenn der batch-writer gestoppt wird, bleiben Nachrichten in der Queue. Beim Neustart werden sie verarbeitet.
-3.3 Idempotenz (S5)
-Wenn dieselbe Nachricht (gleiche id) zweimal in der Queue liegt, wird sie nur einmal in die Datenbank geschrieben.
-Es entsteht kein Eintrag in chat.dlq.
-Implementierung: Vor dem Insert wird geprüft, ob die id bereits in der Tabelle existiert (INSERT ... ON CONFLICT DO NOTHING oder SELECT vor INSERT).
-3.4 Skalierbarkeit (S6)
-Es können mehrere Instanzen des batch-writer parallel laufen (z.B. docker compose up --scale batch-writer=2).
-Beide Instanzen hängen an derselben Queue chat.persist.
-RabbitMQ verteilt die Nachrichten automatisch (Round-Robin).
-Durch die Idempotenz-Prüfung (3.3) entstehen keine Duplikate, auch wenn zwei Instanzen dieselbe Nachricht gleichzeitig verarbeiten.
-3.5 Datenbank-Ausfall (S7)
-Wenn PostgreSQL nicht erreichbar ist, wartet der batch-writer und versucht es erneut (Retry mit Backoff).
-Der `batch-writer** läuft ohne Neustart** weiter.
-Nachrichten bleiben in der Queue, bis die Datenbank wieder verfügbar ist.
-Nach spätestens 90 Sekunden (nach DB-Restart) sind alle Nachrichten verarbeitet.
-3.6 Code-Qualität (S8)
-Keine Streams im Code (laut CLAUDE.md).
-Kommentar über jeder Klasse und Methode.
-.env-Datei ist nicht im Repository (nur .env.example).
+### 1.2 Abgrenzung (was der Dienst bewusst NICHT tut)
+- Kein HTTP-Endpunkt, kein veröffentlichter Port (S2).
+- Liest keine Chat-Historie, verwaltet keine Räume/Mitgliedschaften.
+- Validiert keine Keycloak-Tokens; Inhalts-Validierung bleibt beim chat-service.
+- Sendet nichts an Clients (kein WebSocket).
 
-4. Datenmodell und Konfiguration
-4.1 Tabelle: message
+## 2. Vertrag: Was auf der Queue ankommt
 
----------------------------------------------------------------
-CREATE TABLE message (
-    id UUID PRIMARY KEY,
-    room_id UUID NOT NULL,
-    sender VARCHAR(50) NOT NULL,
-    content TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL
-);
+### 2.1 Queue
+Name: chat.persist (durable). Zusätzlich existiert chat.dlq (durable) als Dead Letter Queue.
 
--- Index für schnelle Abfragen nach Raum
-CREATE INDEX idx_message_room_id ON message(room_id);
----------------------------------------------------------------
+### 2.2 Nachrichten-Format
+JSON-Objekt, Header content_type: application/json:
 
-Spalten-Begründung:
-id: UUID, eindeutig, verhindert Duplikate (Idempotenz).
-room_id: UUID, verweist auf den Chat-Raum.
-sender: VARCHAR(50), Benutzername des Absenders.
-content: TEXT, Nachrichtentext (kann lang sein).
-created_at: TIMESTAMP, Zeitpunkt des Sendens (nicht des Speicherns!).
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "roomId": "11111111-1111-1111-1111-111111111111",
+      "sender": "testuser",
+      "content": "Hallo Welt!",
+      "createdAt": 1794430756.1654861
+    }
 
-4.2 Umgebungsvariablen
+Hinweis createdAt: Der Jackson2JsonMessageConverter des chat-service serialisiert
+Instant standardmässig als Epoch-Sekunden (Dezimalzahl). Der Consumer deserialisiert
+mit Jackson und akzeptiert zusätzlich ISO-8601-Strings.
 
-Variable            |           Beschreibung            |           Beispiel
-                        
-POSTGRES_USER               Datenbank-Benutzer              chat_user
-POSTGRES_PASSWORD           Datenbank-Password              super_secret_postgres_pw
-POSTGRES_DB                 Datenbank-Name                  chat_db
-POSTGRES_HOST               Datenbank-Host                  postgres
-POSTGRES_PORT               Datenbank-Port                  5432
-RABBITMQ_HOST               RabbitMQ-Host                   rabbitmq
-RABBITMQ_PORT               RabbitMQ-Port                   5672
-RABBITMQ_USER               RabbitMQ-Benutzer               chat_user
-RABBITMQ_PASSWORD           RabbitMQ-Passwort               rabbit_password
-BATCH_SIZE                  Anzahl Nachrichten pro Batch    10  	
+### 2.3 Woher ich das weiss
+- Payload-Klasse: MessageEvent im chat-service (backend/src/main/java/.../MessageEvent.java).
+- Converter: Jackson2JsonMessageConverter in der RabbitConfig des chat-service.
+- Verifiziert: Nachrichten aus der Queue via Integrationstest-Log und
+  docker compose exec rabbitmq rabbitmqctl get chat.persist inspectiert.
 
-4.3 Docker-Netz
-Der batch-writer läuft im Netz chat-net zusammen mit postgres und rabbitmq.
+## 3. Verhalten
 
-5. Abnahmekriterien (messbar)
+### 3.1 Normalfall (S3)
+Consumer liest chat.persist, schreibt Batches in message, ackt nach erfolgreichem
+Commit. 1000 Nachrichten sind nach spätestens 60 s persistiert, Queue leer.
 
-Nr.         Kriterium                                   Messbefehl  
-S1          mvn clean test läuft grün                   mvn clean test im Wurzelverzeichnis    
-S2          Kein Dienst veröffentlicht einen Port       docker compose ps zeigt keine Port-Mappings
-S3          1000 Nachrichten in ≤60s verarbeitet        docker compose exec postgres psql -U chat_user -d chat_db -c "SELECT COUNT(*) FROM message;"
-S4          Max. 100 Transaktionen für 1000 Nachrichten PostgreSQL-Logs zählen COMMIT-Statements
-S5          Duplikat wird nur einmal gespeichert        SELECT COUNT(*) FROM message WHERE id = '...' ergibt 1
-S6          2 Instanzen verarbeiten ohne Duplikate      "docker compose up --scale batch-writer=2" COUNT-Abfrage
-S7          Nach DB-Ausfall alles in ≤90s verarbeitet   Zeitmessung zwischen DB-Restart und COUNT-Abfrage
-S8          Code-Regeln eingehalten                     Code-Review + git ls-files | grep .env
+### 3.2 Batch-Verarbeitung (S4)
+Batch-Grösse über BATCH_SIZE konfigurierbar (Default 100). Pro Batch genau eine
+Transaktion (ein INSERT ... ON CONFLICT). 1000 Nachrichten → 10 Transaktionen
+(gefordert: ≤ 100). Writer gestoppt: Nachrichten bleiben in der durable Queue;
+nach Start werden sie verarbeitet, nichts geht verloren.
 
-6. Architektur-Diagramm
+### 3.3 Idempotenz (S5)
+INSERT ... ON CONFLICT (id) DO NOTHING: Dieselbe Nachricht zweimal ergibt genau
+eine Zeile. Duplikate werden regulär geackt, daher bleibt chat.dlq leer.
 
-┌─────────────────┐
-│   chat-service  │
-│  (POST /messages)│
-────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  RabbitMQ       │
-│  Queue:         │
-│  chat.persist   │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  batch-writer   │
-│  (1-2 Instanzen)│
-└────────────────┘
-         │
-         ▼
-─────────────────┐
-│   PostgreSQL    │
-│   Tabelle:      │
-│   message       │
-└─────────────────┘
+### 3.4 Skalierung (S6)
+Mehrere Instanzen (--scale batch-writer=2) sind Competing Consumers an chat.persist;
+RabbitMQ verteilt per Round-Robin. Kein container_name in Compose. Die PK auf id
+verhindert Duplikate auch bei gleichzeitiger Verarbeitung.
 
-7. Fehlerbehandlung
+### 3.5 Datenbank-Ausfall (S7)
+Schlägt der Batch fehl, wirft der Consumer RuntimeException. Spring Retry
+(application.yml: enabled, initial-interval 1 s, multiplier 2.0, max-interval 10 s,
+max-attempts 10) versucht erneut; danach wird die Nachricht requeued
+(default-requeue-rejected: true). Nachrichten bleiben in der Queue, der Writer
+läuft ohne Hand-Neustart weiter. Nach DB-Restart sind alle Nachrichten innerhalb
+von 90 s persistiert.
 
-Fehler                              Verhalten   
-Ungültiges JSON                     Nachricht an chat.dlq senden, original Queue acken
-Datenbank nicht erreichbar          Retry mit exponentiellem Backoff (1s, 2s, 4s, 8s, max 30s)
-Duplikat (id existiert bereits)     Nachricht ignorieren, original Queue acken
-Queue leer                          Warten (blockierend oder polling)
+### 3.6 Nicht verarbeitbare Nachrichten
+Fataler Konvertierungsfehler (z. B. kaputtes JSON) → Reject ohne Requeue →
+Dead-Lettering nach chat.dlq (siehe 4.3).
 
-Diese Spezifikation ist vollständig. Eine Mitschülerin kann den batch-writer allein daraus bauen.
+### 3.7 Code-Regeln (S8)
+Keine Streams, Kommentar über jeder Klasse und Methode, .env nicht im Repo
+(nur .env.example).
+
+## 4. Datenmodell und Konfiguration
+
+### 4.1 Tabelle message
+Entsteht beim Start automatisch durch Hibernate (spring.jpa.hibernate.ddl-auto: update)
+aus der Entity Message – kein manuelles DDL im Repo.
+
+| Spalte     | Typ                          | Begründung |
+|------------|------------------------------|------------|
+| id         | uuid, PRIMARY KEY            | Idempotenz-Schlüssel für ON CONFLICT |
+| room_id    | uuid, NOT NULL               | Fachlicher Kontext gemäss PLANUNG.md 3.7 |
+| sender     | varchar(255), NOT NULL       | Absendername gemäss PLANUNG.md 3.7 |
+| content    | text, NOT NULL               | Nachrichtentext, unbeschränkte Länge |
+| created_at | timestamptz, NOT NULL        | Sendezeitpunkt (nicht Speicherzeit) |
+
+Bewusst kein Zusatzindex: Der Dienst führt nur INSERTs und COUNTs aus, keine
+Raum-Abfragen; der PK-Index genügt.
+
+### 4.2 Umgebungsvariablen (alle in .env.example)
+POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, POSTGRES_HOST, POSTGRES_PORT,
+RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_USER, RABBITMQ_PASSWORD,
+BATCH_SIZE (Default 100).
+
+### 4.3 Netz und Queues
+Dienst im Netz chat-net neben postgres und rabbitmq, ohne veröffentlichte Ports.
+chat.persist trägt die Dead-Letter-Argumente x-dead-letter-exchange: "" und
+x-dead-letter-routing-key: chat.dlq, damit Rejects in chat.dlq landen.
+
+## 5. Abnahmekriterien (messbar)
+
+| Nr | Kriterium | Messbefehl | Erwartung |
+|----|-----------|------------|-----------|
+| S1 | Tests grün | mvn clean test | BUILD SUCCESS |
+| S2 | Keine Ports | docker compose ps | keine Spalte PORTS mit Mapping |
+| S3 | 1000 Msg ≤ 60 s | docker compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -tc "SELECT COUNT(*) FROM message;" | 1000 |
+| S4 | ≤ 100 Tx | docker compose logs batch-writer \| grep -c "Batch mit" | ≤ 100, COUNT = 1000 |
+| S5 | Duplikat 1× | SELECT COUNT(*) FROM message WHERE id = '<id>'; | 1; chat.dlq leer |
+| S6 | Scale=2 | docker compose up --scale batch-writer=2, dann COUNT | 1000, keine Duplikate |
+| S7 | Ausfall ≤ 90 s | COUNT nach DB-Restart pollend prüfen | 300 |
+| S8 | Code-Regeln | git ls-files \| grep -c "^\.env$" ; Stream-Suche im Code | 0 Treffer |

@@ -1,6 +1,7 @@
 package ch.it3b.batchwriter.config;
 
 import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
@@ -22,13 +23,19 @@ public class RabbitConfig {
     public static final String DLQ_NAME = "chat.dlq";
 
     /**
-     * Deklariert die Queue chat.persist (durable).
+     * Deklariert die Queue chat.persist (durable) mit Dead-Lettering.
+     * Nicht verarbeitbare Nachrichten (z.B. kaputtes JSON) landen so in chat.dlq
+     * statt verworfen zu werden. Dies erfuellt die Anforderung aus S5, dass
+     * Duplikate regulaer geackt werden und die DLQ leer bleibt.
      *
-     * @return Die Queue-Instanz
+     * @return Die Queue-Instanz mit DLX-Konfiguration
      */
     @Bean
     public Queue chatPersistQueue() {
-        return new Queue(QUEUE_NAME, true);
+        return QueueBuilder.durable(QUEUE_NAME)
+                .withArgument("x-dead-letter-exchange", "")
+                .withArgument("x-dead-letter-routing-key", DLQ_NAME)
+                .build();
     }
 
     /**
