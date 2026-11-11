@@ -10,3 +10,4 @@ target/
 *.log
 Logs
 *.log
+tools/s5.json
