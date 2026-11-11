@@ -59,5 +59,13 @@ Die vollständigen Regeln stehen in [`CLAUDE.md`](CLAUDE.md).
 
 ## Stand
 
-Das Repository enthält im Moment die Planung und die Dokumente. Der Code entsteht im Unterricht
-entlang des Bootstrap-Plans, Task für Task.
+| Dienst | Zweck | Stand |
+|---|---|---|
+| chat-service | Nimmt POST /messages an und publiziert nach chat.persist | vorgegeben, unveraendert |
+| batch-writer | Konsumiert chat.persist, schreibt Batches idempotent nach PostgreSQL | implementiert, S1-S8 gemessen |
+| postgres | Persistenz, Tabelle message | vorgegeben |
+| rabbitmq | Queues chat.persist und chat.dlq | vorgegeben |
+
+Tests: `mvn clean test` im Wurzelverzeichnis (Testcontainers, echte Queue und DB).
+Messung der Szenarien S2-S8: `tools/test-s1-s8.ps1`, misst von innen im Compose-Netz.
+Dokumente: `docs/spec-batch-writer.md` (Spezifikation), `docs/plan-batch-writer.md` (Plan).
