@@ -1,49 +1,86 @@
-    # Umsetzungsplan: batch-writer
+# Umsetzungsplan: batch-writer
 
-## Warum diese Reihenfolge?
-Wir bauen zuerst das Fundament (Modul, Docker ohne Ports), dann den Happy-Path (Empfangen + Speichern), und erst danach die Robustheit (Batching, Idempotenz, Ausfall-Szenarien). So ist jeder Schritt einzeln testbar und entspricht einem sauberen Git-Commit.
+Kleine Schritte in Bau-Reihenfolge, jeder mit Test. Die Hashes verweisen auf die
+tatsaechliche Historie (`git log`), damit Plan und Repo uebereinstimmen.
 
-## Schritt 1: Maven-Modul und Grundgerüst (S1)
-- **Aufgabe:** Verzeichnis `batch-writer/` mit `pom.xml` (Dependencies: `spring-boot-starter-amqp`, `spring-boot-starter-data-jpa`, `postgresql`, `spring-boot-starter-test`) und leerer `BatchWriterApplication.java` erstellen.
-- **Test:** `mvn clean test` läuft grün.
-- **Commit:** `Schritt 1: Maven-Modul und Grundgerüst angelegt`
+## Schritt 0: Vorgaben klaeren
+Warum zuerst: PLANUNG.md 3.7 liefert Tabelle und Queues, CLAUDE.md den Codestil.
+Test: Vertrag und Regeln gelesen, Architekturskizze vorhanden.
+Commits: ae4b7b1, 2c458f4, 266c827, f3e0a8d, b2ab50a, d7d594c, 0793dda
 
-## Schritt 2: Docker-Integration ohne Ports (S2)
-- **Aufgabe:** `Dockerfile` (Multi-Stage) und Dienst `batch-writer` in `docker-compose.yml` hinzufügen. Netzwerk: `chat-net`. **Keine** `ports:`-Konfiguration.
-- **Test:** `docker compose up -d --build` startet erfolgreich. `docker compose ps` zeigt keine Ports für batch-writer.
-- **Commit:** `Schritt 2: Docker-Integration ohne öffentliche Ports`
+## Schritt 1: Grundgeruest des Dienstes
+Warum: Ohne Maven-Modul, Dockerfile und Compose-Service ist nichts messbar.
+Inhalt: Modul im Eltern-POM, Dockerfile, Compose-Service ohne Ports und ohne
+container_name, Queues, Entity, Repository, Consumer.
+Test: `docker compose build batch-writer`, Dienst startet und verbindet sich.
+Commit: 80ce6bc
 
-## Schritt 3: Datenbank-Entity und Schema (Vorbereitung S3)
-- **Aufgabe:** Entity `Message.java` und `MessageRepository.java` erstellen. `application.yml` mit DB-Zugangsdaten konfigurieren.
-- **Test:** Anwendung startet, Tabelle `message` ist via `psql` sichtbar.
-- **Commit:** `Schritt 3: Datenbank-Entity und Schema definiert`
+## Schritt 2: Pflichttests aufsetzen
+Warum: S1 verlangt gruene Tests, D verlangt je einen Test fuer S5 und S7.
+Inhalt: Integrationstest mit Testcontainers (echte Queue, echte DB).
+Test: `mvn clean test`.
+Commit: 714b06a (Merge b6da583)
 
-## Schritt 4: RabbitMQ Consumer Grundgerüst
-- **Aufgabe:** `RabbitConfig.java` (JSON-Converter) und `MessageConsumer.java` mit `@RabbitListener(queues = "chat.persist")` erstellen.
-- **Test:** Manuell eine Testnachricht in die Queue legen -> Log zeigt den empfangenen JSON-String.
-- **Commit:** `Schritt 4: RabbitMQ Consumer empfängt Nachrichten`
+## Schritt 3: Pflicht-Variablen bereitstellen
+Warum: Das Pruefskript liest POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB aus .env.
+Test: `cp .env.example .env` und Stack startet ohne fehlende Variablen.
+Commit: 06b5e2b
 
-## Schritt 5: Idempotentes Einzelspeichern (S5)
-- **Aufgabe:** Nachricht parsen, in `Message`-Entity umwandeln und mit `ON CONFLICT DO NOTHING` (oder `existsById`-Prüfung) speichern.
-- **Test:** Integrationstest: Dieselbe Nachricht zweimal senden -> DB enthält nur 1 Zeile.
-- **Commit:** `Schritt 5: Idempotentes Speichern implementiert`
+## Schritt 4: Ausfalltest und Code-Regeln schaerfen
+Warum: S7 muss nicht nur "gruen" sein, sondern die Nachricht wirklich retten.
+Inhalt: S7-Test mit gestoppter DB, S5-Assert auf genau eine Zeile, Javadoc (S8).
+Test: `mvn clean test`, beide Tests laufen gegen echte Container.
+Commit: 02573bb
 
-## Schritt 6: Batch-Verarbeitung (S4)
-- **Aufgabe:** `BATCH_SIZE=10` konfigurieren. Listener sammelt Nachrichten und ruft `repository.saveAll()` auf. `@Transactional` sicherstellen.
-- **Test:** 1000 Nachrichten senden -> DB enthält 1000 Zeilen. (Transaktionsanzahl wird durch Batch-Size garantiert).
-- **Commit:** `Schritt 6: Batch-Verarbeitung für Performance implementiert`
+## Schritt 5: Schema-Variante geprueft und verworfen
+Warum: Spalten muessen zum Vertrag des chat-service passen, nicht nur zu PLANUNG.md.
+Inhalt: Versuch mit sender_id/sender_name/sent_at, danach Rueckbau auf sender/created_at.
+Test: Nachricht durch POST /messages senden und Zeile in message pruefen.
+Commits: 90fcbfd (Variante), ba15800 (Korrektur)
 
-## Schritt 7: Resilienz bei DB-Ausfall (S7)
-- **Aufgabe:** Sicherstellen, dass bei `DataAccessException` die Nachricht nicht acknowledged wird (Standardverhalten von Spring AMQP bei Exceptions).
-- **Test:** Integrationstest: Postgres-Container stoppen, Nachricht senden, Postgres starten -> Nachricht wird automatisch verarbeitet, ohne dass der batch-writer neu gestartet wurde.
-- **Commit:** `Schritt 7: Resilienz und Retry-Logik bei DB-Ausfall`
+## Schritt 6: Batch-Empfang und Testlauf reparieren
+Warum: S4 verlangt wenige Transaktionen, S1 muss auf jeder Maschine gruen sein.
+Inhalt: Testcontainers-Upgrade, Listener-Factory (consumerBatchEnabled statt
+setBatchListener), Bean-Name der Factory, @RabbitListener ohne Fremdnamen.
+Test: `mvn clean test`; 1000 Nachrichten ergeben 10 Batches.
+Commit: 0a82cc7 (gebündelt, siehe Abweichungen)
 
-## Schritt 8: Skalierbarkeit testen (S6)
-- **Aufgabe:** Keine Code-Änderung nötig, da Idempotenz (Schritt 5) und Competing Consumers (RabbitMQ Standard) dies abdecken.
-- **Test:** `docker compose up --scale batch-writer=2` + 1000 Nachrichten senden -> COUNT ergibt 1000, keine Duplikate.
-- **Commit:** `Schritt 8: Skalierbarkeit mit 2 Instanzen verifiziert`
+## Schritt 7: Keine Ports veroeffentlichen
+Warum: S2 verbietet veroeffentlichte Ports; Messung erfolgt von innen.
+Test: `docker compose config` enthaelt kein "published".
+Commits: 9d53960, 4a9a45e
 
-## Schritt 9: Code-Qualität und Aufräumen (S8)
-- **Aufgabe:** Alle `Stream`-API-Aufrufe durch `for`-Schleifen ersetzen. Javadoc über jede Klasse und Methode hinzufügen. `.env` in `.gitignore` prüfen.
-- **Test:** Manuelles Code-Review gegen CLAUDE.md.
-- **Commit:** `Schritt 9: Code-Qualität, Kommentare und .gitignore finalisiert`
+## Schritt 8: Docker-API-Version fuer Tests festlegen
+Warum: docker-java sendet API 1.32, neue Engines verlangen mindestens 1.40.
+Test: `mvn clean test` ohne lokale Umgebungsvariablen.
+Commit: 87565fa
+
+## Schritt 9: Queue-Deklaration an den Producer angleichen
+Warum: Abweichende Queue-Argumente fuehren zu PRECONDITION_FAILED (406),
+schliessen den Producer-Channel und kosten Nachrichten (S3).
+Test: 1000 Nachrichten von innen senden, HTTP_OK=1000, HTTP_FAIL=0.
+Commit: 47a3df4
+
+## Schritt 10: Konfiguration korrigieren
+Warum: `${BATCH_SIZE:-100}` ist bash-Syntax; Spring wuerde -100 lesen und den
+Batch-Modus abschalten. Kommentare ohne Zeichensalat.
+Test: `mvn clean test` und `tools/test-s1-s8.ps1` (S4 bleibt bei 10 Batches).
+Commit: folgt
+
+## Schritt 11: README-Stand und Spezifikation nachfuehren
+Warum: PDF 03 verlangt README-Tabelle «Stand» und eine eigenstaendige Spezifikation.
+Test: Gegenlesen gegen Code und Messergebnisse.
+Commit: folgt
+
+## Schritt 12: Abgabe markieren
+Warum: Bewertet wird der Stand mit Tag bewertung-1 im Fork.
+Test: `git log --oneline -1` und Tag zeigen auf denselben Commit.
+Commit: Tag bewertung-1
+
+## Abweichungen vom Ideal
+- 0a82cc7 buendelt mehrere Themen (Testcontainers, Factory, Listener). Kuenftig
+  gilt: ein Thema pro Commit.
+- 9d53960 und 4a9a45e behandeln dasselbe Thema; der erste Commit hatte die Ports
+  nur teilweise entfernt, der zweite stellt den Endzustand her.
+- Die lokale Datei docker-compose.override.yml veroeffentlicht Ports fuer die
+  Entwicklung. Sie ist nicht im Repo; geprueft wird mit `-f docker-compose.yml`.
