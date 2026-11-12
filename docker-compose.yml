@@ -1,4 +1,4 @@
-﻿services:
+services:
   # ---------------------------------------------------------------
   # PostgreSQL
   # ---------------------------------------------------------------
@@ -39,10 +39,10 @@
   # chat-service (Producer)
   # WICHTIG: Keine ports, damit S2 besteht!
   # ---------------------------------------------------------------
-  backend:
+  chat-service:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: chat-service/Dockerfile
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

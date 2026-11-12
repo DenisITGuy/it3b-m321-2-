@@ -3,7 +3,7 @@ WORKDIR /app
 
 # 1. Root POM und ALLE Modul-POMs kopieren (damit Maven die Struktur validieren kann)
 COPY pom.xml .
-COPY backend/pom.xml ./backend/
+COPY chat-service/pom.xml ./chat-service/
 COPY batch-writer/pom.xml ./batch-writer/
 
 # 2. Nur die Sources des zu bauenden Moduls kopieren

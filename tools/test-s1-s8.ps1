@@ -34,7 +34,7 @@ dc down -v | Out-Null
 dc up -d --build | Out-Null
 $sw=[Diagnostics.Stopwatch]::StartNew()
 while ($sw.Elapsed.TotalSeconds -lt 90) {
-  if ((dc logs backend 2>&1 | Select-String "Started ChatApplication")) { break }
+  if ((dc logs chat-service 2>&1 | Select-String "Started ChatApplication")) { break }
   Start-Sleep -Seconds 2
 }
 Start-Sleep -Seconds 5

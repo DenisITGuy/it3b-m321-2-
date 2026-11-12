@@ -19,7 +19,7 @@
     <name>it3b-m321-parent</name>
 
     <modules>
-        <module>backend</module>
+        <module>chat-service</module>
         <module>batch-writer</module>
     </modules>
 
