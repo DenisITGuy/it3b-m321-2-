@@ -17,6 +17,16 @@ spring:
     port: 5672
     username: ${RABBITMQ_USER:chat_user}
     password: ${RABBITMQ_PASSWORD:rabbit_password}
+    # Heartbeats aus: eine pausierte Instanz sendet keine Heartbeats, der Broker
+    # wuerde sonst die Verbindung schliessen und die exclusive Queue loeschen (S6).
+    # Beim Container-Stop schliesst der Socket trotzdem, S4 bleibt erfuellt.
+    requested-heartbeat: ${RABBITMQ_REQUESTED_HEARTBEAT:0}
+
+# live.queue.name steht bewusst NICHT hier: ChatApplication.main setzt den Namen
+# als Default-Property. Ein Eintrag hier wuerde ihn ueberschreiben, und alle
+# Instanzen haetten denselben Queue-Namen.
+live:
+  prefetch: ${LIVE_QUEUE_PREFETCH:10}
 
 server:
   port: 8080

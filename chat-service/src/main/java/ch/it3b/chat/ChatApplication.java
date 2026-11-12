@@ -3,26 +3,37 @@ package ch.it3b.chat;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-/**
- * Einstiegspunkt des chat-service.
- * Diese Klasse startet den eingebetteten Web-Server und den Spring-Kontext.
- */
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
-// @SpringBootApplication = Hauptklasse der Anwendung
-// Kombiniert mehrere Spring-Features und startet den eingebetteten Web-Server
+/**
+ * Startpunkt des chat-service.
+ * Legt beim Start die Instanz-Kennung fest, aus der der Name der eigenen
+ * Live-Queue entsteht, bevor der Spring-Kontext aufgebaut wird.
+ */
 @SpringBootApplication
 public class ChatApplication {
 
     /**
-     * Wird von Java aufgerufen, wenn das Programm startet.
-     * Uebergibt die Kontrolle sofort an Spring Boot.
+     * Startet die Anwendung mit einer eigenen Instanz-Kennung.
+     * Die Kennung wird als Default-Property gesetzt und nicht als System-Property:
+     * Eine System-Property gilt fuer das ganze JVM und wuerde im Test zwei
+     * Kontexte in einem JVM auf denselben Queue-Namen zwingen. Ausserdem steht
+     * sie in der Spring-Reihenfolge ueber den Default-Properties und liesse sich
+     * im Test nicht sauber ueberschreiben.
+     *
+     * @param args Kommandozeilenargumente
      */
-    
-    // main-Methode = Startpunkt der Anwendung
-    // Wird von Java automatisch aufgerufen, wenn die JAR gestartet wird
     public static void main(String[] args) {
-        // Startet Spring Boot und den eingebetteten Web-Server
-        // Spring scannt alle Controller, Beans und Konfigurationen
-        SpringApplication.run(ChatApplication.class, args);
+        String instanzKennung = UUID.randomUUID().toString();
+        String queueName = "chat.live." + instanzKennung;
+
+        Map<String, Object> vorgaben = new HashMap<>();
+        vorgaben.put("live.queue.name", queueName);
+
+        SpringApplication anwendung = new SpringApplication(ChatApplication.class);
+        anwendung.setDefaultProperties(vorgaben);
+        anwendung.run(args);
     }
 }
