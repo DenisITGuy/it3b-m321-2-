@@ -15,75 +15,75 @@ import java.util.UUID;
 
 /**
  * REST-Endpunkte des chat-service.
- * POST nimmt Nachrichten an und legt sie in die Queue chat.persist.
- * Kein Auth-Token noetig: Keycloak ist laut Bewertungsauftrag nicht Teil dieser Aufgabe.
+ * POST nimmt eine Nachricht an und schickt sie auf zwei Wege: in die Queue
+ * chat.persist fuer die Datenbank und an den Fanout-Exchange chat.messages
+ * fuer die Live-Zustellung. Kein Auth-Token, Keycloak ist nicht Teil des Auftrags.
  */
-
-// @RestController = Diese Klasse ist ein REST-Controller (verarbeitet HTTP-Anfragen, gibt JSON/Text zurück)
-// @RequestMapping = Basis-Pfad für alle Endpunkte in dieser Klasse
-// Hier funktionieren beide Pfade: /messages UND /api/messages
 @RestController
 @RequestMapping({"/messages", "/api/messages"})
 public class MessageController {
 
-    // RabbitTemplate = Spring Boot Klasse zum Senden von Nachrichten an RabbitMQ (Message Queue)
-    // final = Wird nur einmal gesetzt (über den Konstruktor)
     private final RabbitTemplate rabbitTemplate;
 
     /**
      * Konstruktor fuer Dependency Injection.
+     * Spring gibt hier den RabbitTemplate herein, der mit JSON serialisiert.
      *
      * @param rabbitTemplate Sendet Nachrichten an RabbitMQ
      */
-    
-    // Konstruktor für Dependency Injection
-    // Spring Boot erstellt automatisch ein RabbitTemplate und gibt es hier rein
-    // Dependency Injection = Abhängigkeiten werden von außen gegeben, nicht selbst erstellt
     public MessageController(RabbitTemplate rabbitTemplate) {
         this.rabbitTemplate = rabbitTemplate;
     }
 
     /**
-     * Nimmt eine Nachricht an, vergibt eine eindeutige ID (wichtig fuer S5)
-     * und legt sie in die Queue chat.persist.
+     * Nimmt eine Nachricht an, vergibt ID und Sendezeitpunkt und verschickt sie.
+     * ID und Zeit entstehen hier auf dem Server, damit Datenbank und Stream
+     * denselben Schluessel fuer dieselbe Nachricht fuehren.
      *
      * @param request Die Nachricht vom Client
-     * @return Das Event inklusive generierter ID als Bestaetigung
+     * @return Das Event inklusive erzeugter ID als Bestaetigung
      */
-    
-    // @PostMapping = Diese Methode reagiert auf HTTP POST-Anfragen (für Daten erstellen/senden)
-    // @ResponseStatus(HttpStatus.ACCEPTED) = Gibt HTTP 202 zurück ("akzeptiert, wird asynchron verarbeitet")
-    // @RequestBody = Der JSON-Body der Anfrage wird automatisch in SendMessageRequest umgewandelt
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
     public MessageEvent sendMessage(@RequestBody SendMessageRequest request) {
-        // Ternary Operator: Bedingung ? wenn wahr : wenn falsch
-        // Wenn sender vorhanden UND nicht leer → nimm sender, sonst "anonymous"
-        // .isBlank() prüft ob String nur Leerzeichen oder leer ist
-        String sender = (request.sender() != null && !request.sender().isBlank()) 
-            ? request.sender() 
-            : "anonymous";
-        
-        // Erstelle ein neues MessageEvent mit allen Daten:
-        // - UUID.randomUUID() = Generiert eine weltweit eindeutige ID (z.B. 550e8400-e29b-11d4...)
-        // - request.roomId() = Raum-ID aus dem Request
-        // - sender = Absender (entweder aus Request oder "anonymous")
-        // - request.content() = Nachrichteninhalt
-        // - Instant.now() = Aktueller Zeitstempel in UTC (sehr präzise)
+        String sender = bestimmeAbsender(request.sender());
+        UUID nachrichtenId = UUID.randomUUID();
+        Instant sendeZeitpunkt = Instant.now();
+
         MessageEvent event = new MessageEvent(
-                UUID.randomUUID(),
+                nachrichtenId,
                 request.roomId(),
                 sender,
                 request.content(),
-                Instant.now());
-        
-        // Schickt das Event an die RabbitMQ Queue "chat.persist"
-        // convertAndSend = Konvertiert das Objekt zu JSON und sendet es asynchron
-        // Ein anderer Service (persist-service) holt es später ab und speichert es in der DB
+                sendeZeitpunkt);
+
+        // Weg 1: Persistenz. Default-Exchange mit Routing-Key chat.persist,
+        // unveraendert aus Bewertung 1, damit der batch-writer weiter schreibt.
         rabbitTemplate.convertAndSend(RabbitConfig.QUEUE_NAME, event);
-        
-        // Gibt das Event zurück als Bestätigung an den Client
-        // Der Client sieht die generierte ID und weiß: Nachricht wurde angenommen
+
+        // Weg 2: Live-Zustellung. Fanout wertet keinen Routing-Key aus, deshalb leer.
+        // Solange keine Instanz-Queue gebunden ist, verwirft der Broker diese Kopie.
+        rabbitTemplate.convertAndSend(RabbitConfig.LIVE_EXCHANGE_NAME, "", event);
+
         return event;
+    }
+
+    /**
+     * Bestimmt den Absendernamen fuer eine Nachricht.
+     * Fehlt der Name oder besteht er nur aus Leerzeichen, wird anonymous gesetzt.
+     * Die Verzweigung steht in einer eigenen Methode statt in einer Ternary-Kette,
+     * damit jede Zeile einzeln vorlesbar ist (CLAUDE.md).
+     *
+     * @param senderAusAnfrage Der Name aus der Anfrage, darf null sein
+     * @return Der Name, der in der Nachricht steht
+     */
+    private String bestimmeAbsender(String senderAusAnfrage) {
+        if (senderAusAnfrage == null) {
+            return "anonymous";
+        }
+        if (senderAusAnfrage.isBlank()) {
+            return "anonymous";
+        }
+        return senderAusAnfrage;
     }
 }

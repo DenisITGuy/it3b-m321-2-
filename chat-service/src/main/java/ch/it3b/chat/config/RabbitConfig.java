@@ -1,58 +1,78 @@
 package ch.it3b.chat.config;
 
+import org.springframework.amqp.core.FanoutExchange;
 import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
  * Konfiguration fuer RabbitMQ im chat-service.
- * Deklariert die Queue 'chat.persist', an die der batch-writer lauscht.
+ * Deklariert die Persistenz-Queue und den Fanout-Exchange fuer die Live-Zustellung
+ * und legt fest, dass Nachrichten als JSON auf die Leitung gehen.
  */
-
-// @Configuration = Markiert diese Klasse als Spring-Konfigurationsklasse
-// Spring Boot scannt diese Klasse beim Start und führt die @Bean-Methoden aus
 @Configuration
 public class RabbitConfig {
 
-    /** Name der Queue fuer die Persistenz (Bewertung 1) */
-    // public static final = Konstante, die von überall gelesen werden kann, aber nicht verändert wird
-    // Wird im MessageController benutzt, um an genau diese Queue zu senden
+    /** Name der Queue fuer die Persistenz (Bewertung 1). */
     public static final String QUEUE_NAME = "chat.persist";
 
+    /** Name des Fanout-Exchange fuer die Live-Zustellung (Bewertung 2). */
+    public static final String LIVE_EXCHANGE_NAME = "chat.messages";
+
     /**
-     * Deklariert die Queue 'chat.persist'.
-     * Stellt sicher, dass die Queue existiert, bevor Nachrichten gesendet werden.
+     * Deklariert die Queue chat.persist, unveraendert aus Bewertung 1.
+     * Sie bleibt durable und ohne Argumente, weil der batch-writer sie identisch
+     * deklariert; abweichende Argumente lehnt RabbitMQ mit PRECONDITION_FAILED ab.
      *
      * @return Die Queue-Instanz
      */
-    
-    // @Bean = Sagt Spring Boot: "Führe diese Methode aus und speichere das Ergebnis 
-    // als Objekt (Bean) im Spring Container, damit andere Teile der App es benutzen können"
     @Bean
     public Queue chatPersistQueue() {
-        // new Queue(name, durable)
-        // name = "chat.persist" (der Name der Queue in RabbitMQ)
-        // true = "durable" bedeutet: Die Queue überlebt einen Neustart von RabbitMQ
-        // (Wichtig, damit keine Nachrichten verloren gehen wenn der Server neu startet)
         return new Queue(QUEUE_NAME, true);
     }
 
     /**
-     * Erstellt den JSON-MessageConverter.
-     * Wandelt Java-Objekte automatisch in JSON fuer RabbitMQ um.
+     * Deklariert den Fanout-Exchange chat.messages.
+     * Fanout legt jede Nachricht als Kopie in jede gebundene Queue. Jede Instanz
+     * braucht dieselbe Kopie, deshalb gibt es hier nichts ueber Routing-Keys zu
+     * steuern. Durable, damit der Exchange einen Neustart des Brokers ueberlebt.
      *
-     * @return Der MessageConverter
+     * @return Der Exchange fuer die Live-Zustellung
      */
-    
-    // Zweites @Bean: Registriert den JSON-Konverter im Spring Container
-    // Spring Boot benutzt diesen Konverter dann automatisch für das RabbitTemplate
+    @Bean
+    public FanoutExchange chatMessagesExchange() {
+        return new FanoutExchange(LIVE_EXCHANGE_NAME, true, false);
+    }
+
+    /**
+     * Wandelt Java-Objekte in JSON fuer RabbitMQ um.
+     * Dieselbe Instanz erzeugt spaeter auch das JSON fuer data: am Stream,
+     * damit Live-Ereignis und nachgeholtes Ereignis dasselbe Format haben.
+     *
+     * @return Der JSON-Converter
+     */
     @Bean
     public Jackson2JsonMessageConverter messageConverter() {
-        // Jackson2JsonMessageConverter = Nutzt die Jackson-Bibliothek (Standard für JSON in Java)
-        // Damit werden unsere Java-Objekte (wie MessageEvent) automatisch in JSON umgewandelt,
-        // bevor sie in die RabbitMQ Queue geschickt werden.
-        // Der Empfänger (z.B. persist-service) bekommt dann JSON und kann es wieder in Objekte umwandeln.
         return new Jackson2JsonMessageConverter();
+    }
+
+    /**
+     * Legt den RabbitTemplate ausdruecklich mit dem JSON-Converter an.
+     * Ohne diese Zuordnung koennte der Standard-Serializer greifen und das Objekt
+     * binaer senden; der Vertrag verlangt JSON mit content_type application/json.
+     *
+     * @param connectionFactory Die Verbindung zum Broker
+     * @param messageConverter Der JSON-Converter von oben
+     * @return Der RabbitTemplate fuer beide Versandwege
+     */
+    @Bean
+    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory,
+                                         Jackson2JsonMessageConverter messageConverter) {
+        RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
+        rabbitTemplate.setMessageConverter(messageConverter);
+        return rabbitTemplate;
     }
 }
