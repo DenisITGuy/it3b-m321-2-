@@ -21,7 +21,7 @@ jede geaenderte Datei mit dem Grund der Aenderung."
 Test: mvn clean test gruen; docker compose up -d --build; docker compose ps zeigt
 chat-service ohne Port-Mapping; docker compose up -d --scale chat-service=2 startet
 zwei Instanzen.
-Geprueft und korrigiert:
+Geprueft und korrigiert: Resttreffer-Suche lieferte nur den Beschreibungstext "Chat-Backend" im Modul-POM, kein Pfad- oder Serviceverweis. Alten Container it3b-m321-backend-1 mit down --remove-orphans entfernt. Die lokale, git-ignorierte Override-Datei musste mit umbenannt werden, sonst merged Compose einen zweiten Service backend mit veroeffentlichten Ports. --scale 2 und zurueck auf 1 selbst gefahren.
 
 ## Schritt 1: Wire-Format feststellen und Fanout-Exchange anbinden
 Ziel: Exchange chat.messages (fanout, durable) existiert, der chat-service
@@ -42,7 +42,7 @@ Persistenz-Strecke nicht."
 Test: rabbitmqctl list_exchanges zeigt chat.messages als fanout; eine ueber POST
 gesendete Nachricht liegt als JSON auf chat.persist; batch-writer schreibt sie
 weiter in die Tabelle message.
-Geprueft und korrigiert:
+Geprueft und korrigiert: Der Exchange erschien nach dem Start nicht in list_exchanges: RabbitAdmin deklariert erst bei der ersten Broker-Verbindung, ohne Listener ist das der erste POST. Der erste POST scheiterte zusaetzlich, weil die Anwendung noch nicht bereit war. Nach Warten auf "Started ChatApplication" HTTP 202. Gemessen: REST-Antwort zeigt createdAt als ISO-String, auf der Leitung liegt eine Epoch-Dezimalzahl.
 
 ## Schritt 2: Queue pro Instanz mit Binding und Lebensdauer
 Ziel: Jede Instanz legt chat.live.<Kennung> an: nicht durable, exclusive,
@@ -59,7 +59,7 @@ beendet wird, und warum sie beim Pausieren der Instanz bestehen bleibt."
 Test: zwei Instanzen starten; docker compose exec rabbitmq rabbitmqctl list_queues
 name consumers zeigt zwei chat.live-Queues mit je einem Consumer; nach --scale
 chat-service=1 ist binnen 30 s nur noch eine da, chat.persist und chat.dlq bleiben.
-Geprueft und korrigiert:
+Geprueft und korrigiert: Zwei chat.live-Queues mit je einem Consumer, beide an chat.messages gebunden, Kopie in beiden Instanz-Logs mit derselben ID. Scale-down entfernte eine Queue in unter 10 s, chat.persist und chat.dlq blieben. Gegen den urspruenglichen Auftrag geaendert: Kennung als Default-Property statt System-Property, weil eine System-Property pro JVM gilt und der Test zwei Kontexte in einem JVM startet.
 
 ## Schritt 3: SSE-Endpunkt mit Raum-Verwaltung
 Ziel: GET /stream?roomId=... liefert text/event-stream und haelt die Verbindung.
@@ -74,7 +74,7 @@ beendete Verbindung aus der Liste verschwindet. Kommentiere jeden Schritt, der m
 Threads zu tun hat, auf Deutsch. Keine Streams, keine Lambda-Ketten."
 Test: von innen im Netz chat-net liefert curl -N -D - den Content-Type
 text/event-stream und die Verbindung bleibt offen.
-Geprueft und korrigiert:
+Geprueft und korrigiert: Content-Type text/event-stream, :connected sofort sichtbar, curl-Exit 28 nach 5 s als Beweis fuer offenes Streaming. Beide 400er erzeugt Spring selbst. Korrigiert: entferne() protokollierte den Abbau nicht, Logzeile ergaenzt. Der Abbau-Pfad ist hier nicht ausloesbar, weil ohne Sender kein Schreibversuch stattfindet.
 
 ## Schritt 4: Von der Instanz-Queue zum Stream
 Ziel: Die Instanz liest ihre Queue und sendet id: und data: an die Clients des Raums.
@@ -90,7 +90,7 @@ Consumer die Reihenfolge eines Absenders haelt."
 Test: zwei Instanzen, je ein Client auf Raum A, ein dritter auf Raum B, je 200
 Nachrichten fuer Raum A ueber jede Instanz: beide A-Clients erhalten 400, jede genau
 einmal und je Absender in Reihenfolge, der B-Client keine.
-Geprueft und korrigiert:
+Geprueft und korrigiert: Drei Clients gemessen: je 20 data und 20 verschiedene IDs an beiden Instanzen, 0 im fremden Raum. Abbau erst nach mehreren Schreibversuchen sichtbar; ein hart entfernter Container sendet kein FIN, dann bleibt die Verbindung bis zum TCP-Timeout. Der Tomcat-ERROR "Broken pipe" kommt aus dem Async-Error-Dispatch, nicht aus unserem Pfad: unser catch laeuft im Consumer-Thread und wirft nicht weiter.
 
 ## Schritt 5: Rueckstau begrenzen
 Ziel: Die Live-Queue haelt nie mehr als 1000 Nachrichten.
@@ -105,7 +105,7 @@ Nachricht spaeter ueber das Nachholen aus der Datenbank zurueckkommt."
 Test: eine von zwei Instanzen pausieren, 5000 Nachrichten senden, dabei die
 Queue-Laenge pollen: nie mehr als 1000; der Client der anderen Instanz erhaelt alle
 5000; nach dem Fortsetzen stellt die pausierte Instanz neue Nachrichten wieder zu.
-Geprueft und korrigiert:
+Geprueft und korrigiert: Argumente am laufenden Stack geprueft: x-max-length 990, x-overflow drop-head. --force-recreate war noetig, weil eine bestehende Queue mit anderen Argumenten PRECONDITION_FAILED liefert. Unter Last gemessen: 990 ready + 10 unacknowledged = 1000, nie darueber. Damit ist die Reserve belegt, nicht nur begruendet.
 
 ## Schritt 6: Unabhaengigkeit von Datenbank und batch-writer
 Ziel: Der Anzeigeweg funktioniert, wenn postgres und batch-writer gestoppt sind.
@@ -119,7 +119,7 @@ Persistenz-Strecke. Nenne mir jede Stelle, die du geprueft hast."
 Test: postgres und batch-writer stoppen, 100 Nachrichten senden, alle 100 erscheinen
 in hoechstens 5 s beim Client; nach dem Neustart beider Dienste stehen alle 100 in
 der Tabelle message.
-Geprueft und korrigiert:
+Geprueft und korrigiert: Mit gestopptem postgres und batch-writer 100 Nachrichten gesendet: 100 Ereignisse in 1.4 s beim Client, HTTP_OK=100. Nach Neustart beider Dienste DB-Delta +100. Der Pfad POST -> Exchange -> Queue -> SSE beruehrt die Datenbank nicht.
 
 ## Schritt 7: Nachholen mit Last-Event-ID
 Ziel: Eine Neuverbindung erhaelt genau die fehlenden Nachrichten in Reihenfolge,
@@ -138,7 +138,7 @@ die Nebenlaeufigkeit und den Umgang mit gleichem Zeitstempel."
 Test: Client trennt nach einer Nachricht, 50 Nachrichten senden, nach 10 s mit
 Last-Event-ID neu verbinden: genau die 50 fehlenden, in ihrer Reihenfolge, keine
 doppelt, danach wieder live.
-Geprueft und korrigiert:
+Geprueft und korrigiert: Client nach einer Nachricht sauber getrennt, 50 gesendet, 12 s gewartet, mit Last-Event-ID neu verbunden: genau 50, Reihenfolge 1..50 eingehalten, 50 verschiedene IDs, die erste ID nicht dabei. Danach eine weitere Nachricht: 51. Ereignis live auf derselben Verbindung.
 
 ## Schritt 8: Pflichttests
 Ziel: Ein Test fuer die Verteilung an zwei Instanzen (S3) und einer fuer die
@@ -153,7 +153,7 @@ jede Nachricht genau einmal erhalten und ein Client eines fremden Raums keine.
 Schreibe einen zweiten Test, der nach einem Abbruch mit Last-Event-ID genau die
 fehlenden Nachrichten liefert. Verwende keine Mocks fuer Broker oder Datenbank."
 Test: mvn clean test im Wurzelverzeichnis, ein Lauf, alles gruen.
-Geprueft und korrigiert:
+Geprueft und korrigiert: Erster Lauf scheiterte mit UnknownHostException: postgres - die Test-Werte lagen als Default-Properties unter application.yml. Umgestellt auf Kommandozeilen-Argumente pro Kontext. Zweiter Lauf: die Reihenfolgen-Assertion verlangte eine globale Ordnung ueber beide Instanzen und schlug fehl, obwohl keine Nachricht fehlte oder doppelt kam. RabbitMQ ordnet pro Verbindung, deshalb prueft der Test jetzt die Teilfolge pro Absender. Beide Tests gruen.
 
 ## Schritt 9: Nachfuehren, messen, Abgabe
 Ziel: .env.example, README-Stand, Messskript, Tag bewertung-2.
@@ -167,7 +167,7 @@ Override-Datei und von innen im Netz chat-net, mit Delta-Messungen. Es verbindet
 sich mit jeder chat-service-Instanz einzeln."
 Test: frischer Klon auf dem Tag, .env aus .env.example, mvn clean test gruen, alle
 acht Szenarien gemessen und protokolliert.
-Geprueft und korrigiert:
+Geprueft und korrigiert: Frischer Klon brach zuerst ab: SseSammler lag in src/main und war nicht im Repo, lokal gruen weil Main-Klassen im Test-Classpath liegen (14 vs 13 Quelldateien). Nach src/test verschoben und committet; -DskipTests kompiliert Tests trotzdem. Danach Klon gruen, keine published-Treffer, beide Instanzen ohne Port-Mapping. Messausgaben tools/*.txt per .gitignore ausgeschlossen.
 
 ## Umplanung 2026-11-12 (vor Umsetzung)
 
