@@ -61,11 +61,11 @@ Die vollständigen Regeln stehen in [`CLAUDE.md`](CLAUDE.md).
 
 | Dienst | Zweck | Stand |
 |---|---|---|
-| chat-service | Nimmt POST /messages an und publiziert nach chat.persist | vorgegeben, unveraendert |
-| batch-writer | Konsumiert chat.persist, schreibt Batches idempotent nach PostgreSQL | implementiert, S1-S8 gemessen |
+| chat-service | POST /messages, Versand an chat.persist und an den Fanout chat.messages, GET /stream als Server-Sent Events mit Last-Event-ID | implementiert, S1-S8 gemessen |
+| batch-writer | Konsumiert chat.persist, schreibt Batches idempotent nach PostgreSQL | unveraendert aus Bewertung 1 |
 | postgres | Persistenz, Tabelle message | vorgegeben |
-| rabbitmq | Queues chat.persist und chat.dlq | vorgegeben |
+| rabbitmq | chat.persist, chat.dlq, Fanout chat.messages, eine Live-Queue pro Instanz | vorgegeben |
 
-Tests: `mvn clean test` im Wurzelverzeichnis (Testcontainers, echte Queue und DB).
-Messung der Szenarien S2-S8: `tools/test-s1-s8.ps1`, misst von innen im Compose-Netz.
-Dokumente: `docs/spec-batch-writer.md` (Spezifikation), `docs/plan-batch-writer.md` (Plan).
+Tests: `mvn clean test` im Wurzelverzeichnis, echte Container via Testcontainers.
+Messung: `tools/live-send.sh` und die Befehle in `docs/spec-live-zustellung.md`, von innen im Netz chat-net.
+Dokumente: `docs/spec-live-zustellung.md`, `docs/plan-live-zustellung.md`.
