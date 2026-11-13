@@ -67,5 +67,5 @@ Die vollständigen Regeln stehen in [`CLAUDE.md`](CLAUDE.md).
 | rabbitmq | chat.persist, chat.dlq, Fanout chat.messages, eine Live-Queue pro Instanz | vorgegeben |
 
 Tests: `mvn clean test` im Wurzelverzeichnis, echte Container via Testcontainers.
-Messung: `tools/live-send.sh` und die Befehle in `docs/spec-live-zustellung.md`, von innen im Netz chat-net.
+Messung: `tools/test-live-s1-s8.ps1` misst S2-S8 in Reihenfolge auf demselben Stack, ohne Override und von innen im Netz chat-net; S1 separat per `mvn clean test`. Einzelbefehle: `tools/live-send.sh` und `docs/spec-live-zustellung.md`.
 Dokumente: `docs/spec-live-zustellung.md`, `docs/plan-live-zustellung.md`.

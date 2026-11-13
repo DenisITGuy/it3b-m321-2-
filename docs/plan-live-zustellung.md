@@ -167,7 +167,7 @@ Override-Datei und von innen im Netz chat-net, mit Delta-Messungen. Es verbindet
 sich mit jeder chat-service-Instanz einzeln."
 Test: frischer Klon auf dem Tag, .env aus .env.example, mvn clean test gruen, alle
 acht Szenarien gemessen und protokolliert.
-Geprueft und korrigiert: Frischer Klon brach zuerst ab: SseSammler lag in src/main und war nicht im Repo, lokal gruen weil Main-Klassen im Test-Classpath liegen (14 vs 13 Quelldateien). Nach src/test verschoben und committet; -DskipTests kompiliert Tests trotzdem. Danach Klon gruen, keine published-Treffer, beide Instanzen ohne Port-Mapping. Messausgaben tools/*.txt per .gitignore ausgeschlossen.
+Geprueft und korrigiert: Frischer Klon brach zuerst ab: SseSammler lag in src/main und war nicht im Repo, lokal gruen weil Main-Klassen im Test-Classpath liegen (14 vs 13 Quelldateien). Nach src/test verschoben und committet; -DskipTests kompiliert Tests trotzdem. Danach Klon gruen, keine published-Treffer, beide Instanzen ohne Port-Mapping. Messausgaben tools/*.txt per .gitignore ausgeschlossen. Nachtrag 2026-11-13: Das Messskript tools/test-live-s1-s8.ps1 fehlte im Repo und wurde ergaenzt. Erster Lauf S7 rot: Das Skript las die id:-Zeile mit Substring(4) statt Substring(3); die fehlende erste Stelle fuellt UUID.fromString still mit einer Null auf (gemessen: gesendet 0bb998ba... statt ebb998ba..., darum "unbekannt"). Nach der Korrektur am Skript S2-S8 gruen in einem Lauf auf demselben Stack; der Anwendungscode blieb unveraendert.
 
 ## Umplanung 2026-11-12 (vor Umsetzung)
 
