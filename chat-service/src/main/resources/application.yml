@@ -7,6 +7,11 @@ spring:
     username: ${POSTGRES_USER:chat_user}
     password: ${POSTGRES_PASSWORD:super_secret_postgres_pw}
 
+  hikari:
+      # Kurzes Timeout, damit Nachholen bei gestoppter Datenbank schnell 503 gibt
+      # statt nach dem 30-s-Standard von HikariCP.
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:3000}
+
   jpa:
     hibernate:
       ddl-auto: update
@@ -27,6 +32,7 @@ spring:
 # Instanzen haetten denselben Queue-Namen.
 live:
   prefetch: ${LIVE_QUEUE_PREFETCH:10}
+  max-length: ${LIVE_QUEUE_MAX_LENGTH:1000}
 
 server:
   port: 8080

@@ -14,6 +14,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Konfiguration fuer RabbitMQ im chat-service.
  * Deklariert die Persistenz-Queue, den Fanout-Exchange und die eigene Live-Queue
@@ -54,20 +57,35 @@ public class RabbitConfig {
     }
 
     /**
-     * Deklariert die Live-Queue dieser Instanz.
-     * Nicht durable: Live-Ereignisse sollen einen Broker-Neustart nicht ueberleben,
-     * die Vollstaendigkeit liegt in der Datenbank. Exclusive bindet die Queue an
-     * diese Verbindung, autoDelete entfernt sie, wenn der letzte Consumer weg ist.
-     * Beendet docker compose den Container, schliesst der Socket und der Broker
-     * loescht die Queue sofort. Beim Pausieren bleibt die Verbindung offen, die
-     * Queue besteht weiter.
+     * Deklariert die Live-Queue dieser Instanz mit Rueckstau-Grenze.
+     * Nicht durable, exclusive, autoDelete: beendet docker compose den Container,
+     * schliesst der Socket und der Broker loescht die Queue; beim Pausieren bleibt
+     * die Verbindung offen und die Queue besteht.
+     * x-max-length bekommt eine Reserve: gemessen wird die Spalte messages, und die
+     * zaehlt ready plus unacknowledged. Eine pausierte Instanz ackt nichts und haelt
+     * bis zu prefetch Nachrichten in flight. Nur mit dem Abzug bleibt
+     * ready + unacked unter dem Gesamtlimit.
+     * x-overflow=drop-head verwirft die aelteste Nachricht dieser Queue. Andere
+     * Instanzen haben eigene Queues und sind nicht betroffen. Eine verworfene
+     * Nachricht holt der Client beim Neuverbinden mit Last-Event-ID aus der
+     * Datenbank nach.
      *
      * @param liveQueueName Name aus live.queue.name, pro Instanz eindeutig
+     * @param gesamtLimit Obergrenze fuer ready plus unacked, aus live.max-length
+     * @param prefetch Nachrichten in flight, aus live.prefetch
      * @return Die Queue-Instanz dieser Instanz
      */
     @Bean
-    public Queue liveQueue(@Value("${live.queue.name}") String liveQueueName) {
-        return new Queue(liveQueueName, false, true, true);
+    public Queue liveQueue(@Value("${live.queue.name}") String liveQueueName,
+                           @Value("${live.max-length:1000}") int gesamtLimit,
+                           @Value("${live.prefetch:10}") int prefetch) {
+        int warteschlangeLimit = gesamtLimit - prefetch;
+
+        Map<String, Object> argumente = new HashMap<>();
+        argumente.put("x-max-length", warteschlangeLimit);
+        argumente.put("x-overflow", "drop-head");
+
+        return new Queue(liveQueueName, false, true, true, argumente);
     }
 
     /**
@@ -86,8 +104,8 @@ public class RabbitConfig {
 
     /**
      * Wandelt Java-Objekte in JSON fuer RabbitMQ um.
-     * Dieselbe Instanz erzeugt spaeter auch das JSON fuer data: am Stream,
-     * damit Live-Ereignis und nachgeholtes Ereignis dasselbe Format haben.
+     * Dieselbe Instanz erzeugt auch das JSON fuer data: am Stream, damit
+     * Live-Ereignis und nachgeholtes Ereignis dasselbe Format haben.
      *
      * @return Der JSON-Converter
      */

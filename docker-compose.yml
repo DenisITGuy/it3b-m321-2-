@@ -1,4 +1,4 @@
-services:
+﻿services:
   # ---------------------------------------------------------------
   # PostgreSQL
   # ---------------------------------------------------------------
@@ -36,7 +36,8 @@ services:
       - chat-net
 
   # ---------------------------------------------------------------
-  # chat-service (Producer)
+  # chat-service (Producer und Live-Zustellung)
+  # WICHTIG: Kein container_name, damit --scale funktioniert!
   # WICHTIG: Keine ports, damit S2 besteht!
   # ---------------------------------------------------------------
   chat-service:
@@ -49,6 +50,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       RABBITMQ_USER: ${RABBITMQ_USER}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      LIVE_QUEUE_MAX_LENGTH: ${LIVE_QUEUE_MAX_LENGTH:-1000}
+      LIVE_QUEUE_PREFETCH: ${LIVE_QUEUE_PREFETCH:-10}
+      RABBITMQ_REQUESTED_HEARTBEAT: ${RABBITMQ_REQUESTED_HEARTBEAT:-0}
+      DB_CONNECTION_TIMEOUT_MS: ${DB_CONNECTION_TIMEOUT_MS:-3000}
     networks:
       - chat-net
     depends_on:
